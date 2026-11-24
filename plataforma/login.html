@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="es-MX">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Iniciar sesión · Vigía Atoyac</title>
+  <meta name="description" content="Acceso del personal de las dependencias a la plataforma Vigía Atoyac.">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body class="login-body">
+  <a class="skip-link" href="#loginForm">Saltar al formulario</a>
+
+  <main class="login">
+    <!-- ===== Panel de marca ===== -->
+    <section class="login-brand" aria-label="Vigía Atoyac">
+      <a class="brand" href="./">
+        <span class="brand-mark" aria-hidden="true"><i data-lucide="waves"></i></span>
+        <span class="brand-name">Vigía Atoyac<span class="brand-sub">Vigilancia de ríos y barrancas</span></span>
+      </a>
+      <div class="login-pitch">
+        <h1>Sensores que vigilan, ciudadanos que reportan, gobierno que actúa.</h1>
+        <ul class="login-points">
+          <li><i data-lucide="radio-tower" aria-hidden="true"></i><span><strong>Nodos en el río.</strong> Miden y guardan sin internet; sus datos llegan con cada visita de Protección Civil.</span></li>
+          <li><i data-lucide="smartphone" aria-hidden="true"></i><span><strong>Reportes de la app.</strong> Fotos y ubicación de la ciudadanía, al momento.</span></li>
+          <li><i data-lucide="folder-open" aria-hidden="true"></i><span><strong>Casos con folio.</strong> Cada evento se asigna solo a la dependencia que debe atenderlo.</span></li>
+        </ul>
+      </div>
+      <p class="login-foot">Prototipo HackaTec 2026 · Reto SECIHTI Puebla</p>
+    </section>
+
+    <!-- ===== Formulario ===== -->
+    <section class="login-panel" aria-labelledby="loginTitle">
+      <div class="login-card">
+        <h2 id="loginTitle">Iniciar sesión</h2>
+        <p class="muted">Acceso para el personal de las dependencias y los Tecnológicos.</p>
+
+        <div class="banner" id="notice" role="status" hidden></div>
+
+        <form id="loginForm" class="form-grid" novalidate>
+          <div class="field">
+            <label for="cuenta">Correo o teléfono</label>
+            <input id="cuenta" name="cuenta" type="text" autocomplete="username" inputmode="email" autocapitalize="none" spellcheck="false" maxlength="120" required>
+          </div>
+          <div class="field">
+            <label for="clave">Contraseña</label>
+            <div class="pass-wrap">
+              <input id="clave" name="clave" type="password" autocomplete="current-password" maxlength="128" required>
+              <button class="btn btn-ghost btn-icon" type="button" id="showPass" aria-label="Mostrar contraseña" aria-pressed="false"><i data-lucide="eye" aria-hidden="true"></i></button>
+            </div>
+          </div>
+          <p class="form-error" id="loginErr" role="alert" hidden></p>
+          <button class="btn btn-primary btn-block" type="submit" id="loginBtn"><i data-lucide="log-in" aria-hidden="true"></i><span>Entrar</span></button>
+        </form>
+
+        <!-- Solo se llena en modo demo y desde la computadora del servidor -->
+        <section class="demo-box" id="demoBox" aria-labelledby="demoTitle" hidden>
+          <h3 id="demoTitle">Cuentas de demostración</h3>
+          <p class="small muted">Un clic entra con ese rol. Solo aparecen en la computadora donde corre el servidor.</p>
+          <div class="demo-accounts" id="demoList"></div>
+        </section>
+
+        <p class="small login-alt"><a href="./">Ver el mapa público sin iniciar sesión</a></p>
+      </div>
+    </section>
+  </main>
+
+  <script src="vendor/lucide.min.js"></script>
+  <script src="js/login.js"></script>
+</body>
+</html>

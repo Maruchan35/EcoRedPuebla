@@ -1,0 +1,10 @@
+# Datos locales del servidor (base de datos, fotos de reportes y cuentas de demostracion)
+plataforma/server/datos/
+# Entorno de Python
+.venv/
+__pycache__/
+*.pyc
+# Programas descargados (cloudflared)
+plataforma/herramientas/
+.venv/
+*.log

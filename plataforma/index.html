@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="es-MX">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vigía Atoyac · Plataforma de vigilancia de ríos y barrancas</title>
+  <meta name="description" content="Plataforma central de Vigía Atoyac: datos de la red de sensores, reportes ciudadanos, casos y alertas para la cuenca del Alto Atoyac.">
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Saltar al contenido</a>
+
+  <div class="app">
+    <!-- ===== Barra lateral: navegación principal ===== -->
+    <aside class="sidebar" id="sidebar" aria-label="Navegación principal">
+      <a class="brand" href="#/resumen">
+        <span class="brand-mark" aria-hidden="true"><i data-lucide="waves"></i></span>
+        <span class="brand-name">Vigía Atoyac<span class="brand-sub">Vigilancia de ríos y barrancas</span></span>
+      </a>
+      <ul class="nav" id="nav"></ul>
+      <div class="sidebar-foot">
+        Prototipo HackaTec 2026 · Reto SECIHTI Puebla<br>
+        <span id="footMode"></span>
+      </div>
+    </aside>
+
+    <div class="main">
+      <!-- ===== Barra superior: estado en vivo y rol ===== -->
+      <header class="topbar">
+        <button class="btn btn-ghost btn-icon menu-btn" id="menuBtn" aria-label="Abrir menú" aria-controls="sidebar" aria-expanded="false">
+          <i data-lucide="menu" aria-hidden="true"></i>
+        </button>
+        <span class="topbar-title" id="topbarTitle">Resumen</span>
+        <span class="topbar-spacer"></span>
+        <button class="live" id="liveBtn" type="button" aria-pressed="true" title="Pausar o reanudar la simulación">
+          <span class="live-dot" aria-hidden="true"></span>
+          <span class="live-text" id="liveText">En vivo</span>
+        </button>
+        <!-- Cuenta: botón de inicio de sesión, menú de usuario o (sin servidor) selector de rol -->
+        <div id="userArea" class="user-area"></div>
+      </header>
+
+      <main id="main" class="content" tabindex="-1" aria-live="off"></main>
+    </div>
+  </div>
+
+  <div class="sidebar-backdrop" id="sidebarBackdrop" hidden></div>
+  <div id="drawerRoot"></div>
+  <div class="toasts" id="toasts" role="status" aria-live="polite" aria-atomic="false"></div>
+
+  <!-- Librerías locales (funcionan sin internet, excepto las teselas del mapa) -->
+  <script src="vendor/leaflet/leaflet.js"></script>
+  <script src="vendor/leaflet/leaflet-heat.js"></script>
+  <script src="vendor/chart.umd.min.js"></script>
+  <script src="vendor/lucide.min.js"></script>
+
+  <!-- Aplicación -->
+  <script src="js/config.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/engine.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/map.js"></script>
+  <script src="js/charts.js"></script>
+  <script src="js/views.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
