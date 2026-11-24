@@ -39,6 +39,7 @@ if __name__ == "__main__":
     if puerto != pedido:
         print(f"[Vigía Atoyac] El puerto {pedido} ya lo usa otro programa: se usará el {puerto}.")
     print(f"[Vigía Atoyac] Plataforma en {url}   (Ctrl+C para detener)")
+    print(f"[EcoRed Puebla] App ciudadana en http://localhost:{puerto}/app/")
     try:                                                         # compartir.bat lee de aquí en qué puerto quedó el servidor
         from .db import DATOS
         DATOS.mkdir(parents=True, exist_ok=True)

@@ -19,7 +19,7 @@ from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
@@ -60,7 +60,7 @@ cuota_reportes = seguridad.Cuota(20, 3600)
 
 
 # ---------- Cabeceras de seguridad y caché ----------
-CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.basemaps.cartocdn.com; "
+CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://server.arcgisonline.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://*.basemaps.cartocdn.com; "
        "connect-src 'self' ws: wss:; font-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'")
 
 
@@ -550,11 +550,33 @@ FIRMAS = {b"\xff\xd8\xff": ".jpg", b"\x89PNG\r\n\x1a\n": ".png"}
 MAX_FOTO = 5 * 1024 * 1024
 
 
+_CLASIFICADOR_FN = None
+_CLASIFICADOR_CARGADO = False
+
+
 def clasificar_foto(ruta) -> Optional[tuple]:
-    """Punto de conexión del modelo de visión (YOLO preentrenado o API de visión).
-    Debe devolver (categoría, confianza) o None. Hoy no hay modelo conectado: el reporte queda
-    "sin clasificar" y solo cuenta la categoría que eligió la persona."""
-    return None
+    """Punto de conexión del modelo de visión híbrido (app-ciudadana/integracion-ia/clasificador_hibrido.py).
+    Devuelve (categoría, confianza) o None si no hay modelo/confianza suficiente."""
+    global _CLASIFICADOR_FN, _CLASIFICADOR_CARGADO
+    if not _CLASIFICADOR_CARGADO:
+        _CLASIFICADOR_CARGADO = True
+        try:
+            import importlib.util
+            mod_path = WEB.parent / "app-ciudadana" / "integracion-ia" / "clasificador_hibrido.py"
+            if mod_path.is_file():
+                spec = importlib.util.spec_from_file_location("ecored_clasificador_hibrido", mod_path)
+                if spec and spec.loader:
+                    mod = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(mod)
+                    _CLASIFICADOR_FN = getattr(mod, "clasificar_foto", None)
+        except Exception:
+            _CLASIFICADOR_FN = None
+    if _CLASIFICADOR_FN is None:
+        return None
+    try:
+        return _CLASIFICADOR_FN(ruta)
+    except Exception:
+        return None
 
 
 def _extension_foto(datos: bytes) -> Optional[str]:
@@ -937,3 +959,27 @@ async def pagina_login():
 # Solo se publican estas carpetas: nunca server/ ni la base de datos
 for carpeta in ("css", "js", "vendor"):
     app.mount("/" + carpeta, StaticFiles(directory=WEB / carpeta), name=carpeta)
+
+APP_CIUDADANA = WEB.parent / "app-ciudadana"
+if APP_CIUDADANA.is_dir():
+    @app.get("/app", include_in_schema=False)
+    async def app_ciudadana_redir():
+        return RedirectResponse(url="/app/", status_code=307)
+
+    @app.get("/app/", include_in_schema=False)
+    @app.get("/app/index.html", include_in_schema=False)
+    async def app_ciudadana_inicio():
+        return FileResponse(APP_CIUDADANA / "index.html")
+
+    @app.get("/app/manifest.json", include_in_schema=False)
+    async def app_ciudadana_manifest():
+        return FileResponse(APP_CIUDADANA / "manifest.json", media_type="application/manifest+json")
+
+    @app.get("/app/sw.js", include_in_schema=False)
+    async def app_ciudadana_sw():
+        return FileResponse(APP_CIUDADANA / "sw.js", media_type="application/javascript")
+
+    for carpeta in ("css", "js", "vendor", "icons"):
+        ruta_carpeta = APP_CIUDADANA / carpeta
+        if ruta_carpeta.is_dir():
+            app.mount("/app/" + carpeta, StaticFiles(directory=ruta_carpeta), name="app_" + carpeta)

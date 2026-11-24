@@ -1,0 +1,20 @@
+{
+  "name": "EcoRed Puebla · Reporte Ciudadano",
+  "short_name": "EcoRed",
+  "description": "Reporta contaminación en ríos, barrancas y zonas de recarga hídrica de Puebla con cámara, GPS, IA y mapa de calor.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#F8FAFC",
+  "theme_color": "#0F172A",
+  "lang": "es-MX",
+  "icons": [
+    {
+      "src": "icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

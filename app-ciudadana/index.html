@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="es-MX">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0F172A">
+  <meta name="description" content="EcoRed Puebla: reporta contaminación en ríos, barrancas y zonas de recarga hídrica desde tu celular con cámara, GPS, IA y mapa de calor.">
+  <title>EcoRed Puebla · Reporte Ciudadano</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Saltar al contenido principal</a>
+
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="#/reportar">
+        <span class="brand-mark" aria-hidden="true"><i data-lucide="droplets"></i></span>
+        <span class="brand-title">
+          <strong>EcoRed Puebla</strong>
+          <span>Vigilancia ciudadana</span>
+        </span>
+      </a>
+
+      <nav class="desktop-nav" aria-label="Navegación principal">
+        <button type="button" data-nav="reportar" class="is-active"><i data-lucide="camera" aria-hidden="true"></i><span>Reportar</span></button>
+        <button type="button" data-nav="mapa"><i data-lucide="flame" aria-hidden="true"></i><span>Mapa de calor</span></button>
+        <button type="button" data-nav="seguimiento"><i data-lucide="bell" aria-hidden="true"></i><span>Seguimiento</span></button>
+      </nav>
+
+      <div class="topbar-actions">
+        <span id="estadoRedBadge" class="status-pill is-online" aria-live="polite">
+          <i data-lucide="wifi" aria-hidden="true"></i><span class="status-text">En línea</span>
+        </span>
+        <button type="button" id="btnSyncCola" class="btn btn-top" hidden aria-label="Sincronizar reportes pendientes">
+          <i data-lucide="refresh-cw" aria-hidden="true"></i>
+          <strong id="colaPendientesCount">0</strong>
+        </button>
+        <button type="button" id="btnCuenta" class="btn btn-top">
+          <i data-lucide="user" aria-hidden="true"></i><span>Cuenta</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main id="main-content" class="main-wrap">
+    <!-- ===== VISTA 1: REPORTAR ===== -->
+    <section class="view-section" data-view="reportar" aria-labelledby="tituloReportar">
+      <div class="page-intro">
+        <h1 id="tituloReportar">Reportar daño en río o barranca</h1>
+        <p class="small muted" id="sesionAnonimaInfo">Toma la foto y la IA identifica el daño automáticamente, incluso sin señal.</p>
+      </div>
+
+      <form id="formReporte" class="report-grid" novalidate>
+        <div class="card">
+          <div class="step-title">
+            <span class="step-num">1</span>
+            <h2>Foto e inspección con IA</h2>
+          </div>
+
+          <div id="fotoEmptyState" class="foto-empty">
+            <i data-lucide="camera" aria-hidden="true"></i>
+            <strong>Captura el agua, espuma o descarga</strong>
+            <span class="small muted">La IA analiza la evidencia en tu teléfono sin consumir datos.</span>
+          </div>
+
+          <div id="fotoPreviewBox" class="foto-preview" hidden>
+            <img id="fotoPreviewImg" src="" alt="Vista previa de la evidencia capturada">
+            <button type="button" id="btnQuitarFoto" class="btn foto-remove" aria-label="Quitar fotografía">
+              <i data-lucide="x" aria-hidden="true"></i><span>Quitar</span>
+            </button>
+          </div>
+
+          <div class="capture-stack">
+            <label class="btn btn-primary btn-block file-trigger">
+              <i data-lucide="camera" aria-hidden="true"></i><span>Tomar foto con cámara</span>
+              <input id="inputFotoCamara" type="file" accept="image/jpeg,image/png,image/webp" capture="environment">
+            </label>
+            <div class="capture-sub">
+              <button type="button" id="btnAbrirCamara" class="btn btn-secondary">
+                <i data-lucide="video" aria-hidden="true"></i><span>Visor en vivo</span>
+              </button>
+              <label class="btn btn-secondary file-trigger">
+                <i data-lucide="image" aria-hidden="true"></i><span>Galería (EXIF)</span>
+                <input id="inputFotoGaleria" type="file" accept="image/jpeg,image/png,image/webp">
+              </label>
+            </div>
+          </div>
+
+          <div id="iaDiagnosticoBox" class="ia-box" aria-live="polite" hidden></div>
+        </div>
+
+        <div class="card">
+          <div class="step-title">
+            <span class="step-num">2</span>
+            <h2>Ubicación y envío</h2>
+          </div>
+
+          <div class="loc-bar">
+            <button type="button" id="btnObtenerGps" class="btn btn-secondary">
+              <i data-lucide="locate-fixed" aria-hidden="true"></i><span>Mi GPS</span>
+            </button>
+            <span id="ubicacionCoords" class="coords-pill num">19.18350, -98.30500</span>
+          </div>
+
+          <div id="miniMapaReporte" class="mini-map" aria-label="Mapa para ajustar la ubicación del reporte"></div>
+          <p class="small muted map-tip">Toca el mapa o mueve el pin azul al tramo exacto del arroyo.</p>
+
+          <div id="ubicacionAlerta" class="alert alert-warn" hidden>
+            La ubicación está fuera de Puebla. Ajusta el pin en el mapa o elige un punto de referencia.
+          </div>
+
+          <div class="field">
+            <label for="referenciaSelect">Referencia rápida del Alto Atoyac</label>
+            <select id="referenciaSelect"></select>
+          </div>
+
+          <div class="field">
+            <div class="voice-row">
+              <label for="descripcionInput">Nota breve (opcional)</label>
+              <button type="button" id="btnDictarVoz" class="btn btn-ghost btn-compact" aria-pressed="false">
+                <i data-lucide="mic" aria-hidden="true"></i><span>Dictar</span>
+              </button>
+            </div>
+            <textarea id="descripcionInput" maxlength="500" placeholder="Ej. Agua azul saliendo de tubo junto al puente, olor fuerte o basura acumulada..."></textarea>
+          </div>
+
+          <details class="cat-override">
+            <summary>Ajustar clasificación detectada (opcional)</summary>
+            <div class="field">
+              <label for="catOverrideSelect">Clasificación</label>
+              <select id="catOverrideSelect">
+                <option value="auto">Automática (según foto y nota)</option>
+              </select>
+            </div>
+          </details>
+
+          <label class="check-row">
+            <input type="checkbox" id="anonimoCheck">
+            <span>Enviar de forma anónima</span>
+          </label>
+
+          <div id="reporteError" class="alert alert-error" role="alert" hidden></div>
+
+          <button type="submit" id="btnEnviarReporte" class="btn btn-primary btn-block">
+            <i data-lucide="send" aria-hidden="true"></i><span>Enviar reporte</span>
+          </button>
+
+          <div id="confirmacionEnvioBox" class="confirm-box" aria-live="polite" hidden></div>
+        </div>
+      </form>
+    </section>
+
+    <!-- ===== VISTA 2: MAPA DE CALOR ===== -->
+    <section class="view-section" data-view="mapa" aria-labelledby="tituloMapa" hidden>
+      <div class="page-intro">
+        <h1 id="tituloMapa">Mapa de calor del Alto Atoyac</h1>
+        <p class="small muted">Puntos críticos en ríos, barrancas y zonas de recarga hacia los mantos acuíferos de Puebla.</p>
+      </div>
+
+      <div id="mapaEstadoBanner" class="alert alert-warn" role="status" hidden></div>
+
+      <div id="mapaResumenKpis" class="kpi-strip"></div>
+
+      <div class="map-layout">
+        <div class="card map-card">
+          <div class="layer-pills" role="group" aria-label="Capas visibles del mapa">
+            <label class="layer-pill">
+              <input type="checkbox" id="capaCalorCheck" checked>
+              <span>Calor</span>
+            </label>
+            <label class="layer-pill">
+              <input type="checkbox" id="capaReportesCheck" checked>
+              <span>Reportes</span>
+            </label>
+            <label class="layer-pill">
+              <input type="checkbox" id="capaRedCheck" checked>
+              <span>Río y red</span>
+            </label>
+          </div>
+
+          <div id="mapaCalorCanvas" class="map-canvas" aria-label="Mapa de puntos calientes del Alto Atoyac"></div>
+
+          <div class="map-actions">
+            <button type="button" id="btnCentrarCuenca" class="btn btn-secondary">
+              <i data-lucide="maximize-2" aria-hidden="true"></i><span>Ver cuenca</span>
+            </button>
+            <button type="button" id="btnMiUbicacionMapa" class="btn btn-secondary">
+              <i data-lucide="locate-fixed" aria-hidden="true"></i><span>Mi ubicación</span>
+            </button>
+          </div>
+        </div>
+
+        <aside class="card map-aside" aria-label="Información del mapa de calor">
+          <div class="legend-box">
+            <h2>Intensidad de puntos calientes</h2>
+            <div class="heat-bar" aria-hidden="true"></div>
+            <div class="heat-labels"><span>Baja incidencia</span><span>Zona crítica</span></div>
+          </div>
+
+          <div class="legend-box">
+            <h3>Protección a mantos acuíferos</h3>
+            <p class="small muted">Las capturas registran contaminación visible en cauces y barrancas. Los vertidos químicos y lixiviados en zonas de recarga pueden infiltrarse al subsuelo del Alto Atoyac.</p>
+          </div>
+
+          <a class="btn btn-ghost btn-block" href="../login.html">
+            <i data-lucide="layout-dashboard" aria-hidden="true"></i><span>Abrir plataforma de gobierno</span>
+          </a>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ===== VISTA 3: SEGUIMIENTO Y AVISOS ===== -->
+    <section class="view-section" data-view="seguimiento" aria-labelledby="tituloSeguimiento" hidden>
+      <div class="page-intro">
+        <h1 id="tituloSeguimiento">Seguimiento y avisos</h1>
+        <p class="small muted">Revisa el avance de tus reportes o sincroniza envíos guardados sin señal.</p>
+      </div>
+
+      <div class="seguimiento-grid">
+        <div>
+          <div class="card">
+            <h2>Buscar por folio</h2>
+            <form id="formBuscarFolio" class="search-row">
+              <label class="sr-only" for="folioInput">Número de folio</label>
+              <input id="folioInput" type="text" placeholder="Ej. R-1301" maxlength="20">
+              <button type="submit" class="btn btn-primary">Buscar</button>
+            </form>
+            <div id="folioError" class="alert alert-error" role="alert" hidden></div>
+            <div id="folioDetalleBox" class="ia-box" hidden></div>
+          </div>
+
+          <div class="card">
+            <h2>Mis reportes</h2>
+            <div id="misReportesLista"></div>
+          </div>
+        </div>
+
+        <div>
+          <div class="card">
+            <div class="notif-top">
+              <h2>Avisos de atención</h2>
+              <button type="button" id="btnMarcarLeidas" class="btn-link">Marcar leídos</button>
+            </div>
+            <div id="notificacionesLista"></div>
+          </div>
+
+          <div class="card">
+            <h2>Cola sin internet</h2>
+            <div id="listaColaOffline"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <nav class="bottom-nav" aria-label="Navegación móvil">
+    <button type="button" data-nav="reportar" class="is-active">
+      <i data-lucide="camera" aria-hidden="true"></i><span>Reportar</span>
+    </button>
+    <button type="button" data-nav="mapa">
+      <i data-lucide="flame" aria-hidden="true"></i><span>Mapa calor</span>
+    </button>
+    <button type="button" data-nav="seguimiento">
+      <i data-lucide="bell" aria-hidden="true"></i><span>Seguimiento</span>
+      <span id="notifCountBadge" class="nav-badge" hidden>0</span>
+    </button>
+  </nav>
+
+  <!-- Modal Cámara en vivo -->
+  <div id="modalCamara" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="tituloCamara" hidden>
+    <div class="modal-panel">
+      <div class="modal-head">
+        <h2 id="tituloCamara">Encuadra el agua o residuo</h2>
+        <button type="button" id="btnCerrarCamara" class="btn btn-ghost" aria-label="Cerrar cámara">Cerrar</button>
+      </div>
+      <div class="camera-stage">
+        <video id="camaraVideo" playsinline muted></video>
+        <div class="camera-guide" aria-hidden="true"></div>
+      </div>
+      <div id="camaraError" class="alert alert-warn" hidden></div>
+      <button type="button" id="btnCapturarCamara" class="btn btn-primary btn-block">
+        <i data-lucide="camera" aria-hidden="true"></i><span>Capturar foto</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Modal Cuenta ciudadana -->
+  <div id="modalCuenta" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="tituloCuenta" hidden>
+    <div class="modal-panel">
+      <div class="modal-head">
+        <h2 id="tituloCuenta">Cuenta ciudadana</h2>
+        <button type="button" id="btnCerrarCuenta" class="btn btn-ghost">Cerrar</button>
+      </div>
+
+      <div id="cuentaVistaLogin">
+        <div class="auth-tabs">
+          <button type="button" id="tabAuthEntrar" class="is-active">Entrar</button>
+          <button type="button" id="tabAuthRegistro">Crear cuenta</button>
+        </div>
+        <form id="formCuenta" novalidate>
+          <div id="campoNombreRegistro" class="field" hidden>
+            <label for="authNombre">Nombre completo</label>
+            <input id="authNombre" type="text" maxlength="80" placeholder="Tu nombre">
+          </div>
+          <div class="field">
+            <label for="authCuenta">Correo o teléfono (10 dígitos)</label>
+            <input id="authCuenta" type="text" maxlength="120" placeholder="correo@ejemplo.com" required>
+          </div>
+          <div class="field">
+            <label for="authClave">Contraseña (mínimo 8 caracteres)</label>
+            <input id="authClave" type="password" maxlength="128" required>
+          </div>
+          <div id="cuentaError" class="alert alert-error" role="alert" hidden></div>
+          <div class="field">
+            <button type="submit" id="btnAuthSubmit" class="btn btn-primary btn-block">Iniciar sesión</button>
+          </div>
+        </form>
+      </div>
+
+      <div id="cuentaVistaPerfil" hidden>
+        <p><strong id="perfilNombre"></strong></p>
+        <p class="small muted" id="perfilCuenta"></p>
+        <button type="button" id="btnCerrarSesion" class="btn btn-danger btn-block">Cerrar sesión</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toastContainer" class="toast-container" aria-live="polite" aria-atomic="true"></div>
+
+  <script src="vendor/lucide.min.js"></script>
+  <script src="vendor/leaflet/leaflet.js"></script>
+  <script src="vendor/leaflet/leaflet-heat.js"></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
