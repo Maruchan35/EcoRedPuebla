@@ -11,12 +11,12 @@ where py >nul 2>nul && set "PY=py -3"
 if not defined PY (where python >nul 2>nul && set "PY=python")
 if not defined PY goto :sinpython
 
-if not exist ".venv\listo.txt" (
+if not exist ".venv\listo2.txt" (
   echo Preparando el entorno por primera vez. Tarda uno o dos minutos...
   if not exist ".venv\Scripts\python.exe" %PY% -m venv .venv
   if not exist ".venv\Scripts\python.exe" goto :sinpython
   ".venv\Scripts\python.exe" -m pip install --quiet --disable-pip-version-check -r server\requirements.txt || goto :sininstalar
-  echo ok> ".venv\listo.txt"
+  echo ok> ".venv\listo2.txt"
 )
 
 echo.

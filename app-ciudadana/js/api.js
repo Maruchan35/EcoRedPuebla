@@ -43,6 +43,9 @@ export function leerSesionLocal() {
 async function pedirJson(ruta, opts = {}) {
   const { token } = leerSesionLocal();
   const headers = new Headers(opts.headers || {});
+  // Si en el mismo navegador hay una sesión de la plataforma (cookie), el servidor exige esta cabecera
+  // en los envíos; sin ella un reporte anónimo sería rechazado con 403
+  if (!headers.has("X-VA")) headers.set("X-VA", "1");
   if (token && !headers.has("Authorization")) {
     headers.set("Authorization", `Bearer ${token}`);
   }

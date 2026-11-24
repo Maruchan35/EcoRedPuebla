@@ -623,7 +623,9 @@ async def crear_reporte(request: Request, cat: str = Form(...), lat: float = For
             raise HTTPException(415, "La foto debe ser JPG, PNG o WebP.")
         nombre_foto = secrets.token_hex(16) + ext
         (FOTOS / nombre_foto).write_bytes(datos)
-    ia = clasificar_foto(FOTOS / nombre_foto) if nombre_foto else None
+    # Fuera del hilo principal: la consulta a Gemini puede tardar segundos y no debe congelar el servidor
+    # (el clasificador no toca la base de datos, así que puede correr en otro hilo)
+    ia = await run_in_threadpool(clasificar_foto, FOTOS / nombre_foto) if nombre_foto else None
     if not ia and ia_etiqueta in motor.CATEGORIAS and ia_confianza is not None and 0 <= ia_confianza <= 1:
         ia = (ia_etiqueta, ia_confianza)                                # clasificación hecha en el teléfono
     folio = f"R-{siguiente(con, 'reporte', 1300)}"
