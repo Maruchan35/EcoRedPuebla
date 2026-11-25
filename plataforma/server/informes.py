@@ -113,7 +113,7 @@ class _Informe(FPDF):
         self.cell(0, 6, _t(f"{self.pie} · Página {self.page_no()} de {{nb}}"), align="C")
 
 
-def pdf(titulo, subtitulo, bloques, pie="Vigía Atoyac") -> bytes:
+def pdf(titulo, subtitulo, bloques, pie="EcoRed Puebla") -> bytes:
     """bloques: ("h", texto) | ("p", texto) | ("kpis", [(etiqueta, valor)]) | ("tabla", encabezados, filas, anchos)
     | ("lista", [textos]). Los anchos de tabla son proporciones."""
     doc = _Informe(titulo, pie)

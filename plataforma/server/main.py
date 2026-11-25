@@ -42,7 +42,7 @@ D = 24 * H
 DIAS_SIN_VISITA = 7                      # tras estos días el nodo se muestra en gris
 AREA = (17.8, 20.9, -99.2, -96.7)        # caja del estado de Puebla y alrededores: lat mín/máx, lng mín/máx
 
-app = FastAPI(title="Vigía Atoyac", version="0.2.0", docs_url="/api/docs", redoc_url=None, openapi_url="/api/openapi.json",
+app = FastAPI(title="EcoRed Puebla", version="0.2.0", docs_url="/api/docs", redoc_url=None, openapi_url="/api/openapi.json",
               description="API de la plataforma central: sesión, reportes de la app, casos y carga por lote de los nodos.")
 con = conectar()
 catalogo_nuevo = semilla.catalogo(con)                  # True si se creó o si cambiaron posiciones de nodos y tramos
@@ -552,7 +552,7 @@ async def datos_abiertos(nodo: str, dias: int = 7):
                                           "WHERE nodo = ? AND t >= ? ORDER BY t", (nodo, ahora() - max(1, min(dias, 31)) * D))]
     texto = lotes.csv_abierto(filas)
     return PlainTextResponse(texto, media_type="text/csv; charset=utf-8",
-                             headers={"Content-Disposition": f'attachment; filename="vigia_{nodo}_{dias}d.csv"'})
+                             headers={"Content-Disposition": f'attachment; filename="ecored_{nodo}_{dias}d.csv"'})
 
 
 # ---------- Series para gráficas y estación piloto ----------
@@ -874,7 +874,7 @@ def _bloques_informe(t0, t1):
         ("tabla", ["Tramo", "Nivel", "Motivo principal"], [[t["tramo"], t["etiqueta"], t["razones"][0]] for t in rg["tramos"]], (10, 18, 72)),
         ("lista", rg["recomendaciones"][:3]),
         ("h", "Notas"),
-        ("p", "Fuente: plataforma Vigía Atoyac (nodos de monitoreo del Alto Atoyac, App Ciudadana y estación piloto EP-1). "
+        ("p", "Fuente: plataforma EcoRed Puebla (nodos de monitoreo del Alto Atoyac, App Ciudadana y estación piloto EP-1). "
               "Los sensores no miden bacterias ni metales pesados; para eso se requieren análisis de laboratorio."),
     ]
     if DEMO:
@@ -900,7 +900,7 @@ async def descargar_informe(nombre: str, formato: str, desde: Optional[str] = No
     if nombre == "informe":
         contenido = await run_in_threadpool(informes.pdf, "Informe de calidad del agua del Alto Atoyac",
                                             f"Periodo: {etiqueta} · Generado el {generado}", _bloques_informe(t0, t1),
-                                            "Vigía Atoyac · Informe del periodo")
+                                            "EcoRed Puebla · Informe del periodo")
     else:
         cols, filas = {"indice": lambda: _tabla_indice(t0, t1), "lecturas": lambda: _tabla_lecturas(t0, t1, nodo),
                        "estacion": lambda: _tabla_estacion(t0, t1), "basura": lambda: _tabla_basura(t0, t1, _es_personal(u)),
@@ -908,10 +908,10 @@ async def descargar_informe(nombre: str, formato: str, desde: Optional[str] = No
         if formato == "csv":
             contenido = informes.csv_bytes(cols, filas)
         else:
-            portada = [(f"Vigía Atoyac · {titulo}", ""), ("Periodo", etiqueta), ("Registros", len(filas)), ("Generado", generado),
-                       ("Fuente", "Plataforma Vigía Atoyac" + (" · datos de demostración simulados" if DEMO else ""))]
+            portada = [(f"EcoRed Puebla · {titulo}", ""), ("Periodo", etiqueta), ("Registros", len(filas)), ("Generado", generado),
+                       ("Fuente", "Plataforma EcoRed Puebla" + (" · datos de demostración simulados" if DEMO else ""))]
             contenido = await run_in_threadpool(informes.xlsx, [(titulo, cols, filas)], portada)
-    archivo = f"vigia_{nombre}{'_' + nodo if nodo else ''}_{rango}.{formato}"
+    archivo = f"ecored_{nombre}{'_' + nodo if nodo else ''}_{rango}.{formato}"
     return Response(content=contenido, media_type=MEDIOS[formato], headers={"Content-Disposition": f'attachment; filename="{archivo}"'})
 
 

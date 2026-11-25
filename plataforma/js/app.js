@@ -83,7 +83,7 @@
     currentName = view;
     current = VA.views[view](main, param ? decodeURIComponent(param) : null) || {};
     document.getElementById("topbarTitle").textContent = C.nav[view].label;
-    document.title = C.nav[view].label + " · Vigía Atoyac";
+    document.title = C.nav[view].label + " · EcoRed Puebla";
     markActive();
     refreshIcons();
     closeMenu();
