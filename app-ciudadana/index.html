@@ -82,15 +82,9 @@
               <i data-lucide="camera" aria-hidden="true"></i><span>Tomar foto con cámara</span>
               <input id="inputFotoCamara" type="file" accept="image/jpeg,image/png,image/webp" capture="environment">
             </label>
-            <div class="capture-sub">
-              <button type="button" id="btnAbrirCamara" class="btn btn-secondary">
-                <i data-lucide="video" aria-hidden="true"></i><span>Visor en vivo</span>
-              </button>
-              <label class="btn btn-secondary file-trigger">
-                <i data-lucide="image" aria-hidden="true"></i><span>Galería (EXIF)</span>
-                <input id="inputFotoGaleria" type="file" accept="image/jpeg,image/png,image/webp">
-              </label>
-            </div>
+            <button type="button" id="btnAbrirCamara" class="btn btn-secondary">
+              <i data-lucide="video" aria-hidden="true"></i><span>Visor en vivo</span>
+            </button>
           </div>
 
           <div id="iaDiagnosticoBox" class="ia-box" aria-live="polite" hidden></div>
@@ -111,7 +105,7 @@
           </div>
 
           <div id="miniMapaReporte" class="mini-map" aria-label="Mapa para ajustar la ubicación del reporte"></div>
-          <p class="small muted map-tip">El reporte marca el lugar exacto del suceso: toca «Mi GPS» (5 m o menos) o acerca el mapa y toca el punto exacto.</p>
+          <p class="small muted map-tip">El reporte marca el lugar exacto del suceso: toca «Mi GPS» (20 m o menos) o acerca el mapa y toca el punto exacto.</p>
 
           <div id="ubicacionAlerta" class="alert alert-warn" hidden>
             La ubicación está fuera de Puebla. Ajusta el pin en el mapa o elige un punto de referencia.
@@ -158,62 +152,14 @@
       </form>
     </section>
 
-    <!-- ===== VISTA 2: MAPA DE CALOR ===== -->
+    <!-- ===== VISTA 2: MAPA 3D (el mismo de la plataforma, servido en /mapa) ===== -->
     <section class="view-section" data-view="mapa" aria-labelledby="tituloMapa" hidden>
       <div class="page-intro">
-        <h1 id="tituloMapa" tabindex="-1">Mapa de calor del Alto Atoyac</h1>
-        <p class="small muted">Puntos críticos en ríos, barrancas y zonas de recarga hacia los mantos acuíferos de Puebla.</p>
+        <h1 id="tituloMapa" tabindex="-1">Mapa 3D del Alto Atoyac</h1>
+        <p class="small muted">El río por tramos con su semáforo, los nodos que miden el agua, las barreras de basura y los reportes de la ciudadanía.</p>
       </div>
-
-      <div id="mapaEstadoBanner" class="alert alert-warn" role="status" hidden></div>
-
-      <div id="mapaResumenKpis" class="kpi-strip"></div>
-
-      <div class="map-layout">
-        <div class="card map-card">
-          <div class="layer-pills" role="group" aria-label="Capas visibles del mapa">
-            <label class="layer-pill">
-              <input type="checkbox" id="capaCalorCheck" checked>
-              <span>Calor</span>
-            </label>
-            <label class="layer-pill">
-              <input type="checkbox" id="capaReportesCheck" checked>
-              <span>Reportes</span>
-            </label>
-            <label class="layer-pill">
-              <input type="checkbox" id="capaRedCheck" checked>
-              <span>Río y red</span>
-            </label>
-          </div>
-
-          <div id="mapaCalorCanvas" class="map-canvas" aria-label="Mapa de puntos calientes del Alto Atoyac"></div>
-
-          <div class="map-actions">
-            <button type="button" id="btnCentrarCuenca" class="btn btn-secondary">
-              <i data-lucide="maximize-2" aria-hidden="true"></i><span>Ver cuenca</span>
-            </button>
-            <button type="button" id="btnMiUbicacionMapa" class="btn btn-secondary">
-              <i data-lucide="locate-fixed" aria-hidden="true"></i><span>Mi ubicación</span>
-            </button>
-          </div>
-        </div>
-
-        <aside class="card map-aside" aria-label="Información del mapa de calor">
-          <div class="legend-box">
-            <h2>Intensidad de puntos calientes</h2>
-            <div class="heat-bar" aria-hidden="true"></div>
-            <div class="heat-labels"><span>Baja incidencia</span><span>Zona crítica</span></div>
-          </div>
-
-          <div class="legend-box">
-            <h3>Protección a mantos acuíferos</h3>
-            <p class="small muted">Las capturas registran contaminación visible en cauces y barrancas. Los vertidos químicos y lixiviados en zonas de recarga pueden infiltrarse al subsuelo del Alto Atoyac.</p>
-          </div>
-
-          <a class="btn btn-ghost btn-block" href="../login.html">
-            <i data-lucide="layout-dashboard" aria-hidden="true"></i><span>Acceso para administración</span>
-          </a>
-        </aside>
+      <div class="map3d-wrap">
+        <iframe id="mapa3dFrame" class="map3d-frame" title="Mapa 3D del Alto Atoyac" allow="fullscreen; geolocation" allowfullscreen></iframe>
       </div>
     </section>
 
@@ -388,7 +334,6 @@
 
   <script src="vendor/lucide.min.js"></script>
   <script src="vendor/leaflet/leaflet.js"></script>
-  <script src="vendor/leaflet/leaflet-heat.js"></script>
   <script type="module" src="js/app.js"></script>
 </body>
 </html>

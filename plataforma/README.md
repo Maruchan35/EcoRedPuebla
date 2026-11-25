@@ -30,7 +30,8 @@ dirección `https://….trycloudflare.com`. No necesita cuenta de Cloudflare.
 
 - El enlace funciona mientras esa ventana y la del servidor sigan abiertas y la laptop tenga internet.
   **Cada vez que se abre `compartir.bat` la dirección cambia.**
-- Quien abre el enlace llega directo a reportar (App Ciudadana, con «¿Qué somos?» arriba). La plataforma con los
+- Quien abre el enlace llega directo a reportar (App Ciudadana, con «¿Qué somos?» arriba); en «Mapa» la app muestra
+  el mapa 3D de la plataforma (`/mapa`, la única página que se deja mostrar dentro de otra). La plataforma con los
   datos se abre solo con una sesión de Administración, en `/login.html` (las cuentas de demostración están en
   `server\datos\cuentas_demo.txt`). Compártanlas solo con quien deba entrar.
 - Por el enlace también se pueden mandar reportes a `/api/reportes`. Para borrar lo que se haya juntado:
@@ -186,7 +187,7 @@ generar los datos de demostración al arrancar.
 | `server/informes.py` | Formatos de los informes: PDF (fpdf2), Excel (openpyxl) y CSV |
 | `server/lotes.py` | Lectura y validación del CSV de la microSD, huella encadenada, generador de ejemplos |
 | `server/db.py`, `server/modelos.py`, `server/semilla.py` | Esquema SQLite, formato de respuestas, datos iniciales |
-| `server/prueba_rapida.py` | Prueba de punta a punta de la API (122 comprobaciones) |
+| `server/prueba_rapida.py` | Prueba de punta a punta de la API (125 comprobaciones) |
 | `server/renovar_cuentas.py` | Deja solo Administración y crea de nuevo la cuenta ciudadana de la demo |
 | `server/prueba_motor.py` | Prueba del motor sin servidor: tiempo de tránsito del agua entre nodos (base temporal) |
 | `docs/api.md`, `docs/formato-lote.md` | Referencia para la app móvil y para el firmware del nodo |
@@ -264,8 +265,8 @@ ciudadanos solo los descarga el personal, y cada dependencia ve completos los su
 - Con contraseña temporal, el servidor no entrega datos hasta que la persona crea la suya.
 - Cambiar rol, contraseña o desactivar una cuenta cierra sus sesiones abiertas al momento.
 - El público nunca recibe texto de reportes, fotos ni quién reportó; sí el lugar del suceso (≈1 m). La app solo envía
-  un reporte con GPS de 5 m o menos de margen o con el punto marcado a mano en el mapa a nivel de calle, y el
-  servidor rechaza un GPS de más de 5 m.
+  un reporte con GPS de 20 m o menos de margen o con el punto marcado a mano en el mapa a nivel de calle, y el
+  servidor rechaza un GPS de más de 20 m. La foto se toma con la cámara (no se sube de la galería).
 - Detrás del túnel de Cloudflare los límites de intentos y de reportes usan la dirección real de cada visitante
   (`CF-Connecting-IP`, que solo se acepta si la conexión viene de la misma máquina, como la de `cloudflared`).
 - Cinco contraseñas fallidas bloquean un minuto; cada intento queda en la bitácora. Fotos: solo JPG/PNG/WebP de hasta 5 MB.

@@ -273,6 +273,12 @@ table.data td .sub { display: block; color: var(--color-muted-fg); font-size: .8
 .va-ctrl button[aria-pressed="true"]:hover { background: #1E293B; }
 .va-ctrl button svg { width: 16px; height: 16px; }
 .map-hint { font-size: .8rem; color: var(--color-muted-fg); }
+/* Mapa 3D público (/mapa): ocupa toda la ventana; la App Ciudadana lo muestra en «Mapa» */
+.mapa-publico { margin: 0; background: #E9EEF3; }
+.mapa-publico-wrap { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
+.mapa-publico .map { flex: 1 1 auto; height: auto; min-height: 0; border-radius: 0; }
+.mapa-publico-legend { flex: none; gap: 4px 14px; padding: 8px 12px; font-size: .8rem; background: #fff; border-top: 1px solid var(--color-border); }
+.mapa-publico-error { margin: var(--space-4); }
 .col-swatch { width: 10px; height: 18px; border-radius: 2px 2px 0 0; display: inline-block; background: linear-gradient(#DC2626, #F59E0B 55%, #15803D); }
 
 /* ---------- Telemetría en vivo ---------- */

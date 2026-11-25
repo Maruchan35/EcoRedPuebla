@@ -126,6 +126,10 @@ def main():
     comprobar("la portada sin sesión lleva directo a reportar", c == 200 and b'data-view="reportar"' in portada, c)
     c, panel, _ = admin.pedir("GET", "/", crudo=True)
     comprobar("con sesión de Administración la portada es la plataforma", c == 200 and b'id="nav"' in panel, c)
+    c, mapa, cab = pub.pedir("GET", "/mapa", crudo=True)
+    comprobar("el mapa 3D es público y la app lo puede mostrar dentro", c == 200 and b'id="mapa3d"' in mapa
+              and cab.get("X-Frame-Options") == "SAMEORIGIN" and "frame-ancestors 'self'" in cab.get("Content-Security-Policy", ""), c)
+    comprobar("las demás páginas no se dejan enmarcar", pub.pedir("GET", "/login.html", crudo=True)[2].get("X-Frame-Options") == "DENY")
 
     print("\nInicio de sesión y roles")
     comprobar("contraseña incorrecta se rechaza", pub.entrar(cuentas["ciudadano"][0], "no-es-la-clave")[0] == 401)
@@ -179,11 +183,13 @@ def main():
     comprobar("seguimiento público por folio, sin texto", c == 200 and r["text"] == "" and r["status"] == "Recibido", r)
     c, anon = pub.pedir("POST", "/api/reportes", form={"cat": "Mal olor", "lat": 19.03, "lng": -98.23, "texto": "anónimo"})
     comprobar("reporte anónimo sin sesión", c == 201 and anon["anonymous"] and not anon["mine"], anon)
-    # El reporte marca el lugar del suceso: GPS con 5 m o menos de margen, o el punto marcado a mano en el mapa
-    c, r = pub.pedir("POST", "/api/reportes", form={"cat": "Basura", "lat": 19.18717, "lng": -98.30329, "ubicacion": "gps", "precision_m": "12"})
-    comprobar("un GPS con más de 5 m de margen se rechaza", c == 422, r)
+    # El reporte marca el lugar del suceso: GPS con 20 m o menos de margen, o el punto marcado a mano en el mapa
+    c, r = pub.pedir("POST", "/api/reportes", form={"cat": "Basura", "lat": 19.18717, "lng": -98.30329, "ubicacion": "gps", "precision_m": "35"})
+    comprobar("un GPS con más de 20 m de margen se rechaza", c == 422, r)
+    c, r = pub.pedir("POST", "/api/reportes", form={"cat": "Mal olor", "lat": 19.03, "lng": -98.23, "ubicacion": "gps", "precision_m": "18"})
+    comprobar("un GPS de 18 m (calle con edificios) se acepta", c == 201, r)
     c, exacto = pub.pedir("POST", "/api/reportes", form={"cat": "Basura", "lat": 19.187213, "lng": -98.303377, "ubicacion": "gps", "precision_m": "3.6"})
-    comprobar("un GPS de 5 m o menos se acepta", c == 201, exacto)
+    comprobar("un GPS de pocos metros se acepta", c == 201, exacto)
     if c == 201:
         c, vista = pub.pedir("GET", f"/api/reportes/{exacto['id']}")
         desvio = max(abs(vista["lat"] - 19.187213) * 111320, abs(vista["lng"] + 98.303377) * 105150) if c == 200 else 99

@@ -121,9 +121,10 @@ export function crearControladorCamara({ modalEl, videoEl, errorEl, onCaptura })
   return { abrir, detener, tomarFoto };
 }
 
-// El reporte marca el lugar del suceso: GPS con 5 m o menos de margen, o el punto marcado a mano con el mapa
-// a nivel de calle (zoom 18: unos 0.6 m por píxel en Puebla), donde se puede atinar a pocos metros
-export const PRECISION_MAX_M = 5;
+// El reporte marca el lugar del suceso: GPS con 20 m o menos de margen (lo que logra un celular en la calle),
+// o el punto marcado a mano con el mapa a nivel de calle (zoom 18: unos 0.6 m por píxel en Puebla).
+// Igual que PRECISION_MAX_M en plataforma/server/main.py.
+export const PRECISION_MAX_M = 20;
 export const ZOOM_EXACTO = 18;
 
 export function crearMiniMapaUbicacion(contenedorId, { onCambio }) {
@@ -168,7 +169,7 @@ export function crearMiniMapaUbicacion(contenedorId, { onCambio }) {
   };
 }
 
-// La primera lectura del GPS suele traer 10–60 m de margen: se sigue escuchando hasta bajar a 5 m o menos
+// La primera lectura del GPS suele traer 10–60 m de margen: se sigue escuchando hasta bajar a PRECISION_MAX_M o menos
 // (o hasta `maxMs`) y se devuelve la mejor lectura. `onAvance` recibe cada mejora para mostrarla.
 export function obtenerGpsDispositivo({ onAvance, maxMs = 30000 } = {}) {
   return new Promise((resolve, reject) => {

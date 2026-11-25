@@ -74,6 +74,7 @@ cuota_reportes = seguridad.Cuota(20, 3600)
 _MAPAS = "https://tiles.openfreemap.org https://server.arcgisonline.com https://s3.amazonaws.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org"
 CSP = (f"default-src 'self'; script-src 'self'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: {_MAPAS}; "
        f"connect-src 'self' ws: wss: {_MAPAS}; font-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'")
+CSP_ENMARCABLE = CSP.replace("frame-ancestors 'none'", "frame-ancestors 'self'")    # /mapa va dentro de la App Ciudadana
 
 
 @app.middleware("http")
@@ -83,8 +84,9 @@ async def cabeceras(request: Request, call_next):
     resp.headers["X-Content-Type-Options"] = "nosniff"
     resp.headers["Referrer-Policy"] = "same-origin"
     if not ruta.startswith("/api/docs"):
-        resp.headers["Content-Security-Policy"] = CSP
-        resp.headers["X-Frame-Options"] = "DENY"
+        enmarcable = ruta == "/mapa"                                    # solo el mapa 3D, y solo dentro de este mismo sitio
+        resp.headers["Content-Security-Policy"] = CSP_ENMARCABLE if enmarcable else CSP
+        resp.headers["X-Frame-Options"] = "SAMEORIGIN" if enmarcable else "DENY"
     if ruta.startswith("/api/"):
         resp.headers["Cache-Control"] = "no-store"
     elif not ruta.startswith("/vendor/"):
@@ -1083,7 +1085,7 @@ async def guardar_umbrales(datos: Umbrales, u: dict = Depends(con_permiso("confi
 # =========================================================
 FIRMAS = {b"\xff\xd8\xff": ".jpg", b"\x89PNG\r\n\x1a\n": ".png"}
 MAX_FOTO = 5 * 1024 * 1024
-PRECISION_MAX_M = 5.0                    # el reporte marca el lugar del suceso: margen del GPS de 5 m o menos
+PRECISION_MAX_M = 20.0                   # el reporte marca el lugar del suceso: margen del GPS de 20 m o menos
 
 
 _CLASIFICADOR_FN = None
@@ -1144,7 +1146,7 @@ async def crear_reporte(request: Request, cat: str = Form(...), lat: float = For
                         foto: Optional[UploadFile] = File(None), u: Optional[dict] = Depends(actual)):
     """Reporte ciudadano (lo envía la app). Con sesión queda ligado a la cuenta para avisarle del avance;
     sin sesión o con `anonimo=true` no se guarda quién lo envió. La ubicación es el lugar del suceso:
-    `ubicacion=gps` con `precision_m` de 5 m o menos, o `ubicacion=mapa` si la persona marcó el punto a mano."""
+    `ubicacion=gps` con `precision_m` de 20 m o menos, o `ubicacion=mapa` si la persona marcó el punto a mano."""
     if cat not in motor.CATEGORIAS:
         raise HTTPException(422, "Categoría no válida. Usa: " + ", ".join(motor.CATEGORIAS) + ".")
     if not (AREA[0] <= lat <= AREA[1] and AREA[2] <= lng <= AREA[3]):
@@ -1152,7 +1154,7 @@ async def crear_reporte(request: Request, cat: str = Form(...), lat: float = For
     if ubicacion == "gps" or precision_m is not None:
         if precision_m is None or not 0 <= precision_m <= PRECISION_MAX_M:
             margen = f"±{precision_m:.0f} m" if precision_m is not None else "una ubicación sin margen"
-            raise HTTPException(422, f"El GPS marca {margen} y el lugar del suceso necesita 5 m o menos. "
+            raise HTTPException(422, f"El GPS marca {margen} y el lugar del suceso necesita {PRECISION_MAX_M:.0f} m o menos. "
                                      "Vuelve a tomar el GPS a cielo abierto o marca el punto exacto en el mapa.")
         ubicacion = "gps"
     elif ubicacion != "mapa":
@@ -1509,6 +1511,12 @@ async def pagina_principal(request: Request):
     if not fila or fila["rol"] not in seguridad.PERSONAL:
         return RedirectResponse(url="/app/", status_code=302)
     return FileResponse(WEB / "index.html")
+
+
+@app.get("/mapa", include_in_schema=False)
+async def pagina_mapa():
+    """Mapa 3D público: el mismo de la plataforma, sin el panel de datos. La App Ciudadana lo muestra en «Mapa»."""
+    return FileResponse(WEB / "mapa.html")
 
 
 @app.get("/login.html", include_in_schema=False)

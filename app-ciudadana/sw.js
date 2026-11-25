@@ -1,4 +1,4 @@
-const CACHE_NAME = "ecored-puebla-v5";
+const CACHE_NAME = "ecored-puebla-v6";
 const STATIC_ASSETS = [
   "./",
   "./index.html",
@@ -11,12 +11,10 @@ const STATIC_ASSETS = [
   "./js/offline-queue.js",
   "./js/api.js",
   "./js/camera-gps.js",
-  "./js/mapa-calor.js",
   "./js/app.js",
   "./vendor/lucide.min.js",
   "./vendor/leaflet/leaflet.css",
   "./vendor/leaflet/leaflet.js",
-  "./vendor/leaflet/leaflet-heat.js",
   "./vendor/leaflet/images/marker-icon.png",
   "./vendor/leaflet/images/marker-icon-2x.png",
   "./vendor/leaflet/images/marker-shadow.png",

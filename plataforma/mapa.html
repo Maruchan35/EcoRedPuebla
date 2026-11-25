@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="es-MX">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mapa 3D del Alto Atoyac · Vigía Atoyac</title>
+  <meta name="description" content="Mapa 3D público del Alto Atoyac: tramos del río por semáforo, nodos, barreras y reportes de la ciudadanía.">
+  <link rel="stylesheet" href="vendor/maplibre/maplibre-gl.css">
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body class="mapa-publico">
+  <!-- Mapa 3D público: el mismo de la plataforma, sin el panel de datos. La App Ciudadana lo muestra en «Mapa». -->
+  <main class="mapa-publico-wrap">
+    <div class="map" id="mapa3d" role="region" aria-label="Mapa 3D del Alto Atoyac: tramos del río, nodos, barreras y reportes de la ciudadanía"></div>
+    <div class="legend mapa-publico-legend" id="leyenda">
+      <span><i style="background:#15803D"></i>Bien</span><span><i style="background:#D97706"></i>Atención</span><span><i style="background:#DC2626"></i>Crítico</span>
+      <span><i style="background:#64748B"></i>Sin datos recientes</span>
+      <span><span class="report-pin"></span>Reporte ciudadano</span>
+    </div>
+  </main>
+  <div id="drawerRoot"></div>
+  <div class="toasts" id="toasts" role="status" aria-live="polite" aria-atomic="false"></div>
+
+  <script src="vendor/maplibre/maplibre-gl-csp.js"></script>
+  <script src="vendor/leaflet/leaflet.js"></script>
+  <script src="vendor/leaflet/leaflet-heat.js"></script>
+  <script src="vendor/lucide.min.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/cauce.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/engine.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/map.js"></script>
+  <script src="js/mapa-publico.js"></script>
+</body>
+</html>

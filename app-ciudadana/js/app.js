@@ -30,7 +30,6 @@ import {
   ZOOM_EXACTO,
 } from "./camera-gps.js";
 import { CATEGORIAS, REFERENCIAS_CUENCA, estaEnPuebla } from "./config.js";
-import { crearMapaCalor } from "./mapa-calor.js";
 import { encolarReporte, listarCola, sincronizarCola } from "./offline-queue.js";
 import { analizarImagenLocal, inferirCategoriaAutomatica } from "./vision-local.js";
 
@@ -117,7 +116,6 @@ function guardarFolioLocal(reporte) {
 }
 
 // ---------- Navegación por hash ----------
-let mapaCalor = null;
 let miniMapa = null;
 
 function activarVista(vista, folioDirecto = null) {
@@ -135,16 +133,10 @@ function activarVista(vista, folioDirecto = null) {
     btn.setAttribute("aria-current", activo ? "page" : "false");
   });
 
-  if (destino !== "mapa" && mapaCalor) {
-    mapaCalor.ocultarCalorTemporal();
-  }
   if (destino === "reportar" && miniMapa) {
     miniMapa.invalidarTamano();
   }
-  if (destino === "mapa" && mapaCalor) {
-    mapaCalor.invalidarTamano();
-    cargarEstadoCuenca();
-  }
+  if (destino === "mapa") cargarMapa3d();
   if (destino === "seguimiento") {
     actualizarVistaSeguimiento(folioDirecto);
   }
@@ -333,9 +325,7 @@ function limpiarFoto() {
     iaBox.innerHTML = "";
   }
   const inputCam = $("#inputFotoCamara");
-  const inputGal = $("#inputFotoGaleria");
   if (inputCam) inputCam.value = "";
-  if (inputGal) inputGal.value = "";
 }
 
 // ---------- Paso 2: Ubicación y referencias ----------
@@ -365,7 +355,7 @@ function actualizarEtiquetaUbicacion(lat, lng, fuente, info = {}) {
   }
 }
 
-// El reporte marca el lugar del suceso: vale el GPS con 5 m o menos de margen o el punto marcado a nivel de calle
+// El reporte marca el lugar del suceso: vale el GPS con 20 m o menos de margen o el punto marcado a nivel de calle
 function ubicacionExacta() {
   return (state.origenUbicacion === "gps" && state.precisionUbicacion !== null && state.precisionUbicacion <= PRECISION_MAX_M)
     || state.origenUbicacion === "mapa";
@@ -496,81 +486,27 @@ function mostrarResultadoEnvio(res, esOffline) {
     <p class="small muted">Clasificación: ${esc(iaTxt)}</p>
     <div class="confirm-actions">
       ${esOffline ? "" : `<button type="button" class="btn btn-secondary" data-ver-folio="${esc(res.id)}">Seguir folio</button>`}
-      <button type="button" class="btn btn-ghost" data-ir-mapa="1">Ver mapa calor</button>
+      <button type="button" class="btn btn-ghost" data-ir-mapa="1">Ver el mapa 3D</button>
     </div>`;
 
   box.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
-// ---------- Mapa de calor ----------
+// ---------- Estado de la cuenca (queda guardado para usarlo sin señal) ----------
 async function cargarEstadoCuenca() {
-  const estadoBanner = $("#mapaEstadoBanner");
-  const resumenEl = $("#mapaResumenKpis");
-  if (resumenEl && !state.estadoCuenca) {
-    resumenEl.innerHTML = `<p class="small muted">Cargando datos de la cuenca...</p>`;
-  }
-
   try {
-    const { data, desdeCache, guardadoEn } = await obtenerEstadoCuenca();
+    const { data, desdeCache } = await obtenerEstadoCuenca();
     state.estadoCuenca = data;
     state.desdeCache = desdeCache;
-
-    if (estadoBanner) {
-      if (desdeCache) {
-        estadoBanner.hidden = false;
-        estadoBanner.textContent = `Sin conexión con el servidor. Mostrando últimos datos guardados (${formatearFecha(guardadoEn)}).`;
-      } else {
-        estadoBanner.hidden = true;
-      }
-    }
-
-    const conteos = mapaCalor?.actualizar(data) || { totalReportes: data.reports?.length || 0, puntosCalor: 0 };
-    actualizarResumenMapa(data, conteos);
   } catch {
-    if (estadoBanner) {
-      estadoBanner.hidden = false;
-      estadoBanner.textContent = "No se pudo conectar con la plataforma central. Verifica que el servidor esté encendido.";
-    }
-    if (resumenEl) {
-      resumenEl.innerHTML = `<p class="small muted">Sin datos disponibles todavía. Reintenta cuando tengas conexión.</p>`;
-    }
+    /* sin conexión ni copia guardada: se vuelve a pedir con el siguiente aviso del servidor */
   }
 }
 
-function actualizarResumenMapa(data, conteos) {
-  const el = $("#mapaResumenKpis");
-  if (!el) return;
-  const reports = data.reports || [];
-  const criticos = reports.filter((r) => r.cat === "Agua de color" || r.cat === "Descarga de tubería").length;
-  const casosAbiertos = (data.cases || []).filter((c) => c.status !== "Cerrado").length;
-  const nodosCount = (data.nodes || []).length;
-
-  el.innerHTML = `
-    <div class="mini-kpi"><span class="num">${conteos.totalReportes}</span><span class="small muted">Reportes activos</span></div>
-    <div class="mini-kpi"><span class="num">${criticos}</span><span class="small muted">Alertas críticas</span></div>
-    <div class="mini-kpi"><span class="num">${casosAbiertos}</span><span class="small muted">Casos abiertos</span></div>
-    <div class="mini-kpi"><span class="num">${nodosCount}</span><span class="small muted">Nodos en red</span></div>`;
-}
-
-function inicializarControlesMapa() {
-  const syncCapas = () => {
-    const calor = Boolean($("#capaCalorCheck")?.checked);
-    const reportes = Boolean($("#capaReportesCheck")?.checked);
-    const red = Boolean($("#capaRedCheck")?.checked);
-    mapaCalor?.fijarCapas({ calor, reportes, red });
-  };
-  $("#capaCalorCheck")?.addEventListener("change", syncCapas);
-  $("#capaReportesCheck")?.addEventListener("change", syncCapas);
-  $("#capaRedCheck")?.addEventListener("change", syncCapas);
-  $("#btnCentrarCuenca")?.addEventListener("click", () => mapaCalor?.ajustarCuenca());
-  $("#btnMiUbicacionMapa")?.addEventListener("click", async () => {
-    try {
-      const pos = await obtenerGpsDispositivo();
-      mapaCalor?.centrarEn(pos.lat, pos.lng, 15);
-    } catch (err) {
-      toast("Ubicación no disponible", err.message, "warn");
-    }
-  });
+// ---------- Mapa 3D: el mismo de la plataforma (/mapa), se carga la primera vez que se abre «Mapa» ----------
+function cargarMapa3d() {
+  const frame = $("#mapa3dFrame");
+  if (frame && !frame.getAttribute("src")) frame.setAttribute("src", "../mapa");
 }
 
 // ---------- Seguimiento y notificaciones ----------
@@ -895,14 +831,12 @@ async function iniciar() {
   inicializarSelectorOpcional();
   inicializarReferencias();
   inicializarCuenta();
-  inicializarControlesMapa();
 
   miniMapa = crearMiniMapaUbicacion("miniMapaReporte", {
     onCambio: actualizarEtiquetaUbicacion,
   });
   actualizarEtiquetaUbicacion(state.lat, state.lng, state.fuenteUbicacion);
 
-  mapaCalor = crearMapaCalor("mapaCalorCanvas");
 
   const camCtrl = crearControladorCamara({
     modalEl: $("#modalCamara"),
@@ -927,14 +861,13 @@ async function iniciar() {
     }
   };
   $("#inputFotoCamara")?.addEventListener("change", manejarInputArchivo);
-  $("#inputFotoGaleria")?.addEventListener("change", manejarInputArchivo);
 
   $("#btnObtenerGps")?.addEventListener("click", async () => {
     const btn = $("#btnObtenerGps");
     const etiqueta = btn.querySelector("span");
     btn.disabled = true;
     try {
-      // Cada lectura mejor mueve el pin; se detiene al bajar a 5 m o menos (o a los 30 s con la mejor que hubo)
+      // Cada lectura mejor mueve el pin; se detiene al bajar a PRECISION_MAX_M o menos (o a los 30 s con la mejor que hubo)
       const gps = await obtenerGpsDispositivo({
         onAvance: (lectura) => {
           if (etiqueta) etiqueta.textContent = `Afinando GPS… ±${lectura.precision} m`;
@@ -949,7 +882,7 @@ async function iniciar() {
       } else if (gps.precision <= PRECISION_MAX_M) {
         toast("Lugar del suceso fijado", `GPS con ±${gps.precision} m de margen.`, "ok");
       } else {
-        toast("El GPS no bajó de 5 m", `Marca ±${gps.precision} m. Sal a cielo abierto y vuelve a intentar, o mueve el pin al punto exacto.`, "warn");
+        toast(`El GPS no bajó de ${PRECISION_MAX_M} m`, `Marca ±${gps.precision} m. Sal a cielo abierto y vuelve a intentar, o mueve el pin al punto exacto.`, "warn");
       }
     } catch (err) {
       toast("GPS no disponible", err.message, "warn");
