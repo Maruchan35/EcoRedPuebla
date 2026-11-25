@@ -353,6 +353,66 @@ function actualizarEtiquetaUbicacion(lat, lng, fuente, info = {}) {
     precisionEl.classList.toggle("ok", exacta);
     precisionEl.classList.toggle("warn", !exacta);
   }
+  avisarPunto3d(lat, lng);
+}
+
+// ---------- Mapa del reporte en plano o en 3D ----------
+// El 3D es el mismo de la plataforma (/mapa?elegir=1): el punto que se toca ahí vuelve con postMessage
+function hayWebGL() {
+  try {
+    const c = document.createElement("canvas");
+    return Boolean(c.getContext("webgl2") || c.getContext("webgl"));
+  } catch {
+    return false;
+  }
+}
+
+function inicializarMapaReporte3d() {
+  const grupo = $(".map-mode");
+  const frame = $("#miniMapa3d");
+  if (!grupo || !frame || !hayWebGL()) return;              // sin WebGL no hay 3D: queda el mapa plano
+  grupo.hidden = false;
+  grupo.addEventListener("click", (ev) => {
+    const btn = ev.target.closest("[data-modo]");
+    if (btn) cambiarModoMapa(btn.dataset.modo);
+  });
+  window.addEventListener("message", (ev) => {
+    const d = ev.data || {};
+    if (ev.origin !== location.origin || ev.source !== frame.contentWindow) return;
+    if (d.tipo === "va-sin-3d") {                             // el equipo no pudo dibujar el 3D: queda el plano
+      cambiarModoMapa("2d");
+      grupo.hidden = true;
+      toast("El 3D no está disponible en este equipo", "Marca el punto en el mapa plano.", "warn");
+      return;
+    }
+    if (d.tipo !== "va-punto" || !Number.isFinite(d.lat) || !Number.isFinite(d.lng)) return;
+    // Mismo criterio que el mapa plano: el toque cuenta como lugar exacto solo con el mapa acercado
+    miniMapa?.fijar(d.lat, d.lng, d.exacto ? "marcado en el mapa 3D" : "acerca el mapa", ZOOM_EXACTO,
+      { origen: d.exacto ? "mapa" : null });
+  });
+}
+
+function cambiarModoMapa(modo) {
+  const en3d = modo === "3d";
+  const frame = $("#miniMapa3d");
+  $$(".map-mode [data-modo]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.modo === modo)));
+  $("#miniMapaReporte").hidden = en3d;
+  frame.hidden = !en3d;
+  if (!en3d) {
+    miniMapa?.invalidarTamano();
+  } else if (!frame.getAttribute("src")) {
+    frame.setAttribute("src", `../mapa?elegir=1&lat=${state.lat}&lng=${state.lng}`);
+  } else {
+    avisarPunto3d(state.lat, state.lng);
+  }
+}
+
+// El pin del 3D sigue al del plano (GPS, referencia rápida o toque en el mapa plano)
+function avisarPunto3d(lat, lng) {
+  const frame = $("#miniMapa3d");
+  if (frame && !frame.hidden && frame.getAttribute("src")) {
+    frame.contentWindow?.postMessage({ tipo: "va-ir", lat, lng }, location.origin);
+  }
 }
 
 // El reporte marca el lugar del suceso: vale el GPS con 20 m o menos de margen o el punto marcado a nivel de calle
@@ -836,6 +896,7 @@ async function iniciar() {
     onCambio: actualizarEtiquetaUbicacion,
   });
   actualizarEtiquetaUbicacion(state.lat, state.lng, state.fuenteUbicacion);
+  inicializarMapaReporte3d();
 
 
   const camCtrl = crearControladorCamara({
@@ -968,6 +1029,8 @@ async function iniciar() {
   });
   window.addEventListener("offline", actualizarIndicadorCola);
 
+  // Íconos de la página antes de esperar al servidor o a la cola sin señal: si eso tarda, no se quedan sin dibujar
+  refrescarIconos();
   state.usuario = leerSesionLocal().usuario;
   actualizarHeaderUsuario();
   const verificado = await verificarSesion();

@@ -104,7 +104,12 @@
             <span id="ubicacionPrecision" class="coords-pill warn" aria-live="polite">Falta el punto exacto</span>
           </div>
 
+          <div class="map-mode" role="group" aria-label="Vista del mapa del reporte" hidden>
+            <button type="button" data-modo="2d" aria-pressed="true"><i data-lucide="map" aria-hidden="true"></i><span>Plano</span></button>
+            <button type="button" data-modo="3d" aria-pressed="false"><i data-lucide="mountain" aria-hidden="true"></i><span>3D</span></button>
+          </div>
           <div id="miniMapaReporte" class="mini-map" aria-label="Mapa para ajustar la ubicación del reporte"></div>
+          <iframe id="miniMapa3d" class="mini-map mini-map-3d" title="Mapa 3D para marcar el lugar del suceso" hidden></iframe>
           <p class="small muted map-tip">El reporte marca el lugar exacto del suceso: toca «Mi GPS» (20 m o menos) o acerca el mapa y toca el punto exacto.</p>
 
           <div id="ubicacionAlerta" class="alert alert-warn" hidden>

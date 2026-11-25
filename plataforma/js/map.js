@@ -320,6 +320,8 @@
       return mejor;
     }
     map.on("click", e => {
+      // La App Ciudadana marca aquí el lugar del suceso: el toque elige el punto en vez de abrir ventanas
+      if (opts.alElegir) { opts.alElegir(e.lngLat.lat, e.lngLat.lng, map.getZoom()); return; }
       const f = puntoEn(e.point);
       if (f) {
         const id = f.properties.id;

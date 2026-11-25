@@ -279,6 +279,7 @@ table.data td .sub { display: block; color: var(--color-muted-fg); font-size: .8
 .mapa-publico .map { flex: 1 1 auto; height: auto; min-height: 0; border-radius: 0; }
 .mapa-publico-legend { flex: none; gap: 4px 14px; padding: 8px 12px; font-size: .8rem; background: #fff; border-top: 1px solid var(--color-border); }
 .mapa-publico-error { margin: var(--space-4); }
+.mapa-elegir .mapa-publico-legend { display: none; }                 /* al marcar un reporte el mapa ocupa todo el recuadro */
 .col-swatch { width: 10px; height: 18px; border-radius: 2px 2px 0 0; display: inline-block; background: linear-gradient(#DC2626, #F59E0B 55%, #15803D); }
 
 /* ---------- Telemetría en vivo ---------- */

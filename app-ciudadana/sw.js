@@ -1,4 +1,4 @@
-const CACHE_NAME = "ecored-puebla-v6";
+const CACHE_NAME = "ecored-puebla-v7";
 const STATIC_ASSETS = [
   "./",
   "./index.html",

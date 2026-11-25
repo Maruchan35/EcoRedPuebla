@@ -395,6 +395,32 @@ img { max-width: 100%; display: block; }
   z-index: 1;
 }
 .map-tip { margin-bottom: 0; }
+/* Mapa del reporte en plano o en 3D (el 3D es el de la plataforma: /mapa?elegir=1) */
+.map-mode {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  margin-top: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg);
+}
+.map-mode button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 6px 14px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-secondary);
+  font-weight: 600;
+  cursor: pointer;
+}
+.map-mode button i { width: 16px; height: 16px; }
+.map-mode button[aria-pressed="true"] { background: var(--color-primary); color: #FFFFFF; }
+.mini-map-3d { display: block; height: 300px; padding: 0; background: #E9EEF3; }
 
 .field {
   display: flex;
@@ -939,6 +965,7 @@ img { max-width: 100%; display: block; }
   }
   .report-grid .card + .card { margin-top: 0; }
   .mini-map { height: 240px; }
+  .mini-map-3d { height: 320px; }
   .map-layout {
     grid-template-columns: 1fr 320px;
     align-items: start;
