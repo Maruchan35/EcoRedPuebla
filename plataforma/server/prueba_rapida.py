@@ -108,6 +108,8 @@ def main():
     comprobar("la carga por lote pide sesión", pub.pedir("POST", "/api/sincronizacion", form={"nodo": "N3"}, archivos={"archivo": ("a.csv", b"t,ph\n", "text/csv")})[0] == 401)
     comprobar("la base de datos no se sirve como archivo", pub.pedir("GET", "/server/datos/vigia.db", crudo=True)[0] == 404)
     comprobar("los archivos de la web sí se sirven", pub.pedir("GET", "/js/api.js", crudo=True)[0] == 200)
+    comprobar("el logo se sirve en la plataforma y en la app", all(pub.pedir("GET", ruta, crudo=True)[0] == 200
+              for ruta in ("/icons/favicon.png", "/icons/logo-96.png", "/app/icons/logo-192.png", "/app/icons/logo-ecored.png")))
     c, est = pub.pedir("GET", "/api/estacion")
     comprobar("estación piloto pública: trata agua y remueve turbidez", c == 200 and est["kpis"]["m3Dia"] > 0
               and est["kpis"]["remocion"]["turb"] > 0.6 and len(est["serie"]) > 24, est.get("kpis") if c == 200 else c)

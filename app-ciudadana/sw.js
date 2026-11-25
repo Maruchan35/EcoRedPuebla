@@ -1,9 +1,12 @@
-const CACHE_NAME = "ecored-puebla-v7";
+const CACHE_NAME = "ecored-puebla-v8";
 const STATIC_ASSETS = [
   "./",
   "./index.html",
   "./manifest.json",
-  "./icons/icon.svg",
+  "./icons/favicon.png",
+  "./icons/logo-96.png",
+  "./icons/logo-192.png",
+  "./icons/logo-ecored.png",
   "./css/styles.css",
   "./js/config.js",
   "./js/exif.js",

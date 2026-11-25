@@ -1525,7 +1525,7 @@ async def pagina_login():
 
 
 # Solo se publican estas carpetas: nunca server/ ni la base de datos
-for carpeta in ("css", "js", "vendor"):
+for carpeta in ("css", "js", "vendor", "icons"):
     app.mount("/" + carpeta, StaticFiles(directory=WEB / carpeta), name=carpeta)
 
 APP_CIUDADANA = WEB.parent / "app-ciudadana"

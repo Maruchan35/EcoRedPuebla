@@ -135,13 +135,14 @@ img { max-width: 100%; display: block; }
   width: 34px;
   height: 34px;
   border-radius: var(--radius);
-  background: var(--color-water);
+  background: #FFFFFF;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  overflow: hidden;
 }
-.brand-mark i { width: 18px; height: 18px; }
+.brand-mark img { width: 100%; height: 100%; display: block; }
 .brand-title {
   display: flex;
   flex-direction: column;
@@ -852,6 +853,7 @@ img { max-width: 100%; display: block; }
 
 /* ---------- ¿Qué somos? ---------- */
 .about-panel { max-width: 520px; }
+.about-logo { display: block; width: 150px; height: auto; margin: 0 auto var(--space-3); }
 .about-lead { font-size: 1rem; color: var(--color-secondary); margin-bottom: var(--space-2); }
 .about-h { margin: var(--space-4) 0 var(--space-2); }
 .about-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
