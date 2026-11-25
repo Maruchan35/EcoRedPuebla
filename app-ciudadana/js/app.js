@@ -14,6 +14,7 @@ import {
   obtenerNotificaciones,
   registrarCiudadano,
   salirApp,
+  obtenerRiesgo,
   verReportePorFolio,
   verificarSesion,
 } from "./api.js";
@@ -118,8 +119,9 @@ let mapaCalor = null;
 let miniMapa = null;
 
 function activarVista(vista, folioDirecto = null) {
-  const permitidas = ["reportar", "mapa", "seguimiento"];
+  const permitidas = ["reportar", "mapa", "rio", "seguimiento"];
   const destino = permitidas.includes(vista) ? vista : "reportar";
+  const cambio = state.vistaActual !== destino;
   state.vistaActual = destino;
 
   $$(".view-section").forEach((sec) => {
@@ -144,12 +146,49 @@ function activarVista(vista, folioDirecto = null) {
   if (destino === "seguimiento") {
     actualizarVistaSeguimiento(folioDirecto);
   }
+  if (destino === "rio") {
+    cargarRiesgo();
+  }
+  // Cada pestaña empieza arriba, con el foco en su título (antes quedaba a media página)
+  if (cambio) {
+    window.scrollTo({ top: 0 });
+    document.querySelector(`.view-section[data-view="${destino}"] h1`)?.focus({ preventScroll: true });
+  }
+}
+
+// ---------- El río: riesgo para la salud por contacto con el agua ----------
+async function cargarRiesgo() {
+  const alerta = $("#rioAlerta");
+  const lista = $("#rioTramos");
+  if (!alerta || !lista) return;
+  let d = null;
+  try {
+    d = await obtenerRiesgo();
+  } catch {
+    d = null;
+  }
+  if (!d) {
+    alerta.innerHTML = `<div class="alert alert-warn">No se pudo consultar el riesgo; revisa tu conexión. Mientras tanto: no te metas al río.</div>`;
+    return;
+  }
+  alerta.innerHTML = `<div class="rio-hero ${esc(d.peor)}"><strong>${esc(d.mensaje)}</strong>
+    <span>Los sensores miden pH, conductividad, turbidez, color y nivel. El riesgo nunca es bajo: el río recibe drenaje y descargas industriales sin tratar.</span></div>`;
+  lista.innerHTML = d.tramos.map((t) => `<article class="rio-card ${esc(t.nivel)}">
+      <span class="rio-nivel"><i data-lucide="${t.nivel === "extremo" ? "siren" : "triangle-alert"}" aria-hidden="true"></i>${esc(t.etiqueta)}</span>
+      <h3>${esc(t.tramo)} · ${esc(t.nombre)}</h3>
+      <p>${esc(t.resumen)}</p>
+      <ul>${t.razones.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>
+    </article>`).join("");
+  $("#rioRecomendaciones").innerHTML = d.recomendaciones.map((r) => `<li>${esc(r)}</li>`).join("");
+  $("#rioNoMide").innerHTML = d.noMide.map((r) => `<li>${esc(r)}</li>`).join("");
+  refrescarIconos();
 }
 
 function leerRutaHash() {
   const raw = window.location.hash.replace(/^#\/?/, "");
   const partes = raw.split("/").filter(Boolean);
   if (partes[0] === "mapa") activarVista("mapa");
+  else if (partes[0] === "rio") activarVista("rio");
   else if (partes[0] === "seguimiento") activarVista("seguimiento", partes[1] || null);
   else activarVista("reportar");
 }

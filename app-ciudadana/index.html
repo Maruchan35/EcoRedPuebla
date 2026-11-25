@@ -26,8 +26,9 @@
 
       <nav class="desktop-nav" aria-label="Navegación principal">
         <button type="button" data-nav="reportar" class="is-active"><i data-lucide="camera" aria-hidden="true"></i><span>Reportar</span></button>
-        <button type="button" data-nav="mapa"><i data-lucide="flame" aria-hidden="true"></i><span>Mapa de calor</span></button>
-        <button type="button" data-nav="seguimiento"><i data-lucide="bell" aria-hidden="true"></i><span>Seguimiento</span></button>
+        <button type="button" data-nav="mapa"><i data-lucide="map" aria-hidden="true"></i><span>Mapa</span></button>
+        <button type="button" data-nav="rio"><i data-lucide="heart-pulse" aria-hidden="true"></i><span>El río</span></button>
+        <button type="button" data-nav="seguimiento"><i data-lucide="bell" aria-hidden="true"></i><span>Mis reportes</span></button>
       </nav>
 
       <div class="topbar-actions">
@@ -49,7 +50,7 @@
     <!-- ===== VISTA 1: REPORTAR ===== -->
     <section class="view-section" data-view="reportar" aria-labelledby="tituloReportar">
       <div class="page-intro">
-        <h1 id="tituloReportar">Reportar daño en río o barranca</h1>
+        <h1 id="tituloReportar" tabindex="-1">Reportar daño en río o barranca</h1>
         <p class="small muted" id="sesionAnonimaInfo">Toma la foto y la IA identifica el daño automáticamente, incluso sin señal.</p>
       </div>
 
@@ -157,7 +158,7 @@
     <!-- ===== VISTA 2: MAPA DE CALOR ===== -->
     <section class="view-section" data-view="mapa" aria-labelledby="tituloMapa" hidden>
       <div class="page-intro">
-        <h1 id="tituloMapa">Mapa de calor del Alto Atoyac</h1>
+        <h1 id="tituloMapa" tabindex="-1">Mapa de calor del Alto Atoyac</h1>
         <p class="small muted">Puntos críticos en ríos, barrancas y zonas de recarga hacia los mantos acuíferos de Puebla.</p>
       </div>
 
@@ -214,9 +215,26 @@
     </section>
 
     <!-- ===== VISTA 3: SEGUIMIENTO Y AVISOS ===== -->
+    <!-- ===== VISTA: EL RÍO (riesgo para la salud) ===== -->
+    <section class="view-section" data-view="rio" aria-labelledby="tituloRio" hidden>
+      <div class="page-intro">
+        <h1 id="tituloRio" tabindex="-1">¿Es seguro meterse al río?</h1>
+        <p class="small muted">Riesgo por contacto con el agua en cada tramo del Alto Atoyac, según los sensores y los casos recientes.</p>
+      </div>
+      <div id="rioAlerta" aria-live="polite"><p class="small muted">Consultando los tramos…</p></div>
+      <div id="rioTramos" class="rio-tramos"></div>
+      <div class="card rio-info">
+        <h2>Qué hacer</h2>
+        <ul id="rioRecomendaciones"></ul>
+        <h2>Lo que los sensores no miden</h2>
+        <ul id="rioNoMide"></ul>
+        <p class="small muted">Eso solo lo dice un análisis de laboratorio: aunque un tramo marque «bien», el agua no es apta para bañarse.</p>
+      </div>
+    </section>
+
     <section class="view-section" data-view="seguimiento" aria-labelledby="tituloSeguimiento" hidden>
       <div class="page-intro">
-        <h1 id="tituloSeguimiento">Seguimiento y avisos</h1>
+        <h1 id="tituloSeguimiento" tabindex="-1">Mis reportes y avisos</h1>
         <p class="small muted">Revisa el avance de tus reportes o sincroniza envíos guardados sin señal.</p>
       </div>
 
@@ -262,10 +280,13 @@
       <i data-lucide="camera" aria-hidden="true"></i><span>Reportar</span>
     </button>
     <button type="button" data-nav="mapa">
-      <i data-lucide="flame" aria-hidden="true"></i><span>Mapa calor</span>
+      <i data-lucide="map" aria-hidden="true"></i><span>Mapa</span>
+    </button>
+    <button type="button" data-nav="rio">
+      <i data-lucide="heart-pulse" aria-hidden="true"></i><span>El río</span>
     </button>
     <button type="button" data-nav="seguimiento">
-      <i data-lucide="bell" aria-hidden="true"></i><span>Seguimiento</span>
+      <i data-lucide="bell" aria-hidden="true"></i><span>Mis reportes</span>
       <span id="notifCountBadge" class="nav-badge" hidden>0</span>
     </button>
   </nav>

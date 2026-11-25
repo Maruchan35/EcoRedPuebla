@@ -9,6 +9,7 @@
 """
 import hashlib
 import json
+import math
 import os
 import random
 import re
@@ -42,7 +43,8 @@ def _leer_cauce() -> dict:
 
 GEO = _leer_cauce()
 
-NODOS = [
+NODOS_BASE = [
+    # Red con la que arranca la plataforma; después Administración da de alta, mueve o da de baja nodos (red.py).
     # id, nombre, lat, lng, batería, días desde calibración, Tecnológico, valores normales, horas desde la última descarga
     ("N1", "San Martín Texmelucan · puente MEX 117", *GEO["nodos"]["N1"], 92, 6, "TecNM San Martín Texmelucan",
      {"ph": 7.4, "cond": 650, "turb": 35, "color": 1.6, "temp": 17.5, "nivel": 0.9}, 48),
@@ -57,7 +59,9 @@ NODOS = [
     ("N6", "Entrada a Valsequillo", *GEO["nodos"]["N6"], 95, 2, "Instituto Tecnológico de Puebla",
      {"ph": 7.5, "cond": 1200, "turb": 50, "color": 2.0, "temp": 19.6, "nivel": 1.4}, 24),
 ]
-CAUCE = GEO["tramos"]                     # T1..T5: del nodo de arriba al de abajo, siguiendo el río
+CAUCE_BASE = GEO["tramos"]                # T1..T5 de la red inicial: del nodo de arriba al de abajo, siguiendo el río
+# Red vigente para la demo: demostracion() la vuelve a leer de la base (nodos activos, en orden río abajo)
+NODOS = list(NODOS_BASE)
 BARRERAS = [
     # id, nombre, lat, lng, llenado %, nivel, nivel máximo, días desde el último vaciado
     ("B1", "Barranca Xaltonac", *GEO["barreras"]["B1"], 46, 0.6, 2.2, 2),
@@ -77,8 +81,9 @@ def tiene_estacion(nodo_id: str) -> bool:
 
 
 def en_tramo(i: int, fraccion: float) -> list:
-    """Punto sobre el cauce del tramo T(i+1) a cierta fracción de su largo (0 = nodo de arriba, 1 = nodo de abajo)."""
-    pts = CAUCE[i]
+    """Punto sobre el cauce del tramo i de la red inicial a cierta fracción de su largo (0 = arriba, 1 = abajo).
+    Es geografía del río: no cambia aunque Administración agregue o quite nodos."""
+    pts = CAUCE_BASE[max(0, min(i, len(CAUCE_BASE) - 1))]
     largos = [motor.km(*pts[k], *pts[k + 1]) for k in range(len(pts) - 1)]
     meta, acumulado = sum(largos) * fraccion, 0.0
     for k, l in enumerate(largos):
@@ -90,12 +95,66 @@ def en_tramo(i: int, fraccion: float) -> list:
 
 
 def _nombre_tramo(i: int) -> str:
-    return NODOS[i][1].split(" · ")[0] + " → " + NODOS[i + 1][1].split(" · ")[0]
+    return NODOS_BASE[i][1].split(" · ")[0] + " → " + NODOS_BASE[i + 1][1].split(" · ")[0]
 
 
 def _huella_catalogo() -> str:
-    datos = [[n[:4] for n in NODOS], CAUCE, [b[:4] for b in BARRERAS]]
+    datos = [[n[:4] for n in NODOS_BASE], CAUCE_BASE, [b[:4] for b in BARRERAS]]
     return hashlib.sha256(json.dumps(datos, ensure_ascii=False).encode("utf-8")).hexdigest()[:16]
+
+
+# ---------- El cauce completo: para poner nodos sobre el río y cortar los tramos entre ellos ----------
+_CURSO = None
+
+
+def curso_rio():
+    """Línea completa del río (todos los tramos del archivo, de arriba hacia abajo) y los km acumulados en cada punto."""
+    global _CURSO
+    if _CURSO is None:
+        pts = []
+        for tramo in CAUCE_BASE:
+            for p in tramo:
+                if not pts or pts[-1] != [p[0], p[1]]:
+                    pts.append([p[0], p[1]])
+        km = [0.0]
+        for a, b in zip(pts, pts[1:]):
+            km.append(km[-1] + motor.km(a[0], a[1], b[0], b[1]))
+        _CURSO = (pts, km)
+    return _CURSO
+
+
+def ubicar_en_rio(lat: float, lng: float):
+    """Punto del cauce más cercano a (lat, lng): (lat, lng, km desde la cabecera, metros de distancia al río)."""
+    pts, km = curso_rio()
+    mejor = None
+    for i in range(len(pts) - 1):
+        (alat, alng), (blat, blng) = pts[i], pts[i + 1]
+        k = math.cos(math.radians(alat))                       # plano local: los grados de longitud miden menos
+        dx, dy = (blng - alng) * k, blat - alat
+        largo2 = dx * dx + dy * dy
+        u = 0.0 if not largo2 else max(0.0, min(1.0, ((lng - alng) * k * dx + (lat - alat) * dy) / largo2))
+        plat, plng = alat + u * (blat - alat), alng + u * (blng - alng)
+        d = motor.km(lat, lng, plat, plng)
+        if mejor is None or d < mejor[3]:
+            mejor = (plat, plng, km[i] + u * (km[i + 1] - km[i]), d)
+    return round(mejor[0], 6), round(mejor[1], 6), mejor[2], mejor[3] * 1000
+
+
+def punto_en_rio(k: float) -> list:
+    pts, km = curso_rio()
+    if k <= 0:
+        return list(pts[0])
+    for i in range(len(pts) - 1):
+        if km[i + 1] >= k:
+            u = (k - km[i]) / (km[i + 1] - km[i]) if km[i + 1] > km[i] else 0.0
+            return [round(pts[i][0] + u * (pts[i + 1][0] - pts[i][0]), 6), round(pts[i][1] + u * (pts[i + 1][1] - pts[i][1]), 6)]
+    return list(pts[-1])
+
+
+def trazo_entre(k0: float, k1: float) -> list:
+    """Trazo del río entre dos posiciones (km desde la cabecera)."""
+    pts, km = curso_rio()
+    return [punto_en_rio(k0)] + [p for p, k in zip(pts, km) if k0 < k < k1] + [punto_en_rio(k1)]
 
 
 # Cuentas de demostración: una por rol, cada una con su contraseña (quedan anotadas en datos/cuentas_demo.txt)
@@ -123,24 +182,25 @@ def catalogo(con) -> bool:
     huella = _huella_catalogo()
     t = ahora()
     if con.execute("SELECT COUNT(*) AS c FROM nodos").fetchone()["c"]:
-        if leer_ajuste(con, "catalogo") == huella:
+        # Si Administración ya editó la red, manda la red de la base: el archivo ya no la sobrescribe
+        if leer_ajuste(con, "catalogo") == huella or leer_ajuste(con, "red_editada"):
             return False
         with transaccion(con):
-            for i, (nid, nombre, lat, lng, *_resto) in enumerate(NODOS):
+            for i, (nid, nombre, lat, lng, *_resto) in enumerate(NODOS_BASE):
                 con.execute("UPDATE nodos SET nombre = ?, lat = ?, lng = ?, orden = ? WHERE id = ?", (nombre, lat, lng, i, nid))
-            for i, puntos in enumerate(CAUCE):
+            for i, puntos in enumerate(CAUCE_BASE):
                 con.execute("UPDATE tramos SET nombre = ?, puntos = ? WHERE id = ?", (_nombre_tramo(i), json.dumps(puntos), f"T{i + 1}"))
             for bid, nombre, lat, lng, *_resto in BARRERAS:
                 con.execute("UPDATE barreras SET nombre = ?, lat = ?, lng = ? WHERE id = ?", (nombre, lat, lng, bid))
             guardar_ajuste(con, "catalogo", huella)
         return True
     with transaccion(con):
-        for i, (nid, nombre, lat, lng, bat, cal, tec, base, _) in enumerate(NODOS):
+        for i, (nid, nombre, lat, lng, bat, cal, tec, base, _) in enumerate(NODOS_BASE):
             con.execute("INSERT INTO nodos (id, orden, nombre, lat, lng, bateria, calibrado, tec, base) VALUES (?,?,?,?,?,?,?,?,?)",
                         (nid, i, nombre, lat, lng, bat, t - cal * D, tec, json.dumps(base)))
-        for i, puntos in enumerate(CAUCE):
+        for i, puntos in enumerate(CAUCE_BASE):
             con.execute("INSERT INTO tramos (id, desde, hasta, nombre, puntos) VALUES (?,?,?,?,?)",
-                        (f"T{i + 1}", NODOS[i][0], NODOS[i + 1][0], _nombre_tramo(i), json.dumps(puntos)))
+                        (f"T{i + 1}", NODOS_BASE[i][0], NODOS_BASE[i + 1][0], _nombre_tramo(i), json.dumps(puntos)))
         for bid, nombre, lat, lng, llenado, nivel, nivel_max, dias in BARRERAS:
             con.execute("INSERT INTO barreras (id, nombre, lat, lng, llenado, nivel, nivel_max, ultimo_vaciado, ultima_descarga) VALUES (?,?,?,?,?,?,?,?,?)",
                         (bid, nombre, lat, lng, llenado, nivel, nivel_max, t - dias * D, t - dias * D))
@@ -288,12 +348,44 @@ def _punto_cerca(rng, p, metros=60):
 
 
 def _tramo_de(nid: str):
-    i = next(k for k, n in enumerate(NODOS) if n[0] == nid)
-    return i - 1 if i > 0 else None                             # índice del tramo que termina en el nodo
+    """Índice del tramo de la red inicial que termina en el nodo (para ubicar reportes sobre el río)."""
+    i = next((k for k, n in enumerate(NODOS_BASE) if n[0] == nid), 0)
+    return i - 1 if i > 0 else None
+
+
+def _perfil_entre(km_base: dict, km: float) -> dict:
+    """Perfil de contaminación de un nodo nuevo: interpolado entre los nodos originales de arriba y de abajo."""
+    orden = sorted(km_base.items(), key=lambda x: x[1])
+    arriba = [x for x in orden if x[1] <= km] or orden[:1]
+    abajo = [x for x in orden if x[1] >= km] or orden[-1:]
+    (na, ka), (nb, kb) = arriba[-1], abajo[0]
+    pa, pb = sim.PERFILES.get(na, sim.GENERICO), sim.PERFILES.get(nb, sim.GENERICO)
+    f = 0.0 if kb == ka else (km - ka) / (kb - ka)
+    return {k: round(pa[k] + f * (pb[k] - pa[k]), 3) for k in pa}
+
+
+def _red_demo(con) -> list:
+    """Nodos activos de la red, en orden río abajo, con lo que pide la simulación. Los seis originales conservan
+    su perfil; los que Administración dio de alta toman perfil y datos intermedios entre sus vecinos."""
+    base = {n[0]: n for n in NODOS_BASE}
+    km_base = {n[0]: ubicar_en_rio(n[2], n[3])[2] for n in NODOS_BASE}
+    red = []
+    for f in con.execute("SELECT id, nombre, lat, lng, tec, base FROM nodos ORDER BY orden"):
+        valores = json.loads(f["base"])
+        if f["id"] in base:
+            n = base[f["id"]]
+            red.append((f["id"], f["nombre"], f["lat"], f["lng"], n[4], n[5], f["tec"] or n[6], valores, n[8]))
+        else:
+            sim.PERFILES[f["id"]] = _perfil_entre(km_base, ubicar_en_rio(f["lat"], f["lng"])[2])
+            red.append((f["id"], f["nombre"], f["lat"], f["lng"], 86, 8, f["tec"] or "TecNM Puebla", valores, 30))
+    return red
 
 
 def demostracion(con) -> None:
-    """90 días simulados de telemetría, visitas, reportes, casos y vaciados. Se repite con «Reiniciar demo»."""
+    """90 días simulados de telemetría, visitas, reportes, casos y vaciados. Se repite con «Reiniciar demo»
+    y cada vez que Administración cambia la red de nodos."""
+    global NODOS
+    NODOS = _red_demo(con)
     rng = random.Random(20261124)
     t = ahora()
     with transaccion(con):
@@ -323,8 +415,10 @@ def demostracion(con) -> None:
 
 def _programar_descargas(t: int) -> list:
     """Descargas con su hora; las marcadas "visita" ocurren la madrugada del día de la última visita al nodo."""
-    horarios = []
+    horarios, activos = [], {n[0] for n in NODOS}
     for nid, tipo, dias, hora, minutos, fuerza in DESCARGAS:
+        if nid not in activos:                                   # nodo dado de baja: su descarga no se registró
+            continue
         if dias == "visita":
             v = _ultima_visita(t, nid)
             ini = sim.dia_local(v) * D - sim.UTC_A_LOCAL + int(hora * H)
@@ -404,7 +498,7 @@ def _crecidas(con) -> list:
     """Episodios en los que el nivel pasó del crítico en N5 y N6 (salen de la telemetría simulada)."""
     critico = motor.umbrales(con)["nivel"]["crit"]
     episodios = []
-    for nid in ("N5", "N6"):
+    for nid in [n for n in ("N5", "N6") if any(x[0] == n for x in NODOS)]:
         actual = None
         for f in con.execute("SELECT t, nivel FROM lecturas WHERE nodo = ? AND nivel >= ? ORDER BY t", (nid, critico)):
             if actual and f["t"] - actual["fin"] <= 3 * H:
@@ -537,7 +631,7 @@ def _reportes(con, rng, t, eventos, ids) -> dict:
             t_rep = e["ini"] + int((0.4 + 3.5 * rng.random()) * H)
             if t_rep > t - 30 * MIN:
                 t_rep = e["ini"] + int(0.5 * H)
-            p = _punto_cerca(rng, en_tramo(i, 0.55 + 0.4 * rng.random()) if i is not None else (NODOS[0][2], NODOS[0][3]), 90)
+            p = _punto_cerca(rng, en_tramo(i, 0.55 + 0.4 * rng.random()) if i is not None else (NODOS_BASE[0][2], NODOS_BASE[0][3]), 90)
             r = _reporte(None, CATS_EVENTO[e["tipo"]][k % len(CATS_EVENTO[e["tipo"]])], p, t_rep, None, rng,
                          usuario=ciudadana if k == 0 and e["n"] % 3 == 0 else None)
             r["_evento"] = e["n"]
@@ -581,6 +675,7 @@ def _casos(con, rng, t, eventos, crecidas, llenadas, reportes, visitas, ids) -> 
     lim = nombre_corto(ids.get("limpia", (None, "Limpia municipal"))[1])
     u = motor.umbrales(con)
     nodos = {n[0]: n for n in NODOS}
+    tramo_hasta = {f["hasta"]: f for f in con.execute("SELECT id, desde, hasta, puntos FROM tramos")}   # red vigente
     por_evento = {}
     for r in reportes["lista"]:
         if "_evento" in r:
@@ -596,7 +691,7 @@ def _casos(con, rng, t, eventos, crecidas, llenadas, reportes, visitas, ids) -> 
         if not e["filas"]:
             continue
         nid, n = e["nodo"], nodos[e["nodo"]]
-        i = _tramo_de(nid)
+        tr = tramo_hasta.get(nid)                                 # el tramo de la red vigente que termina en el nodo
         anom = sorted({k for f in e["filas"] for k in f["_anom"]})
         if not anom:
             continue
@@ -613,10 +708,10 @@ def _casos(con, rng, t, eventos, crecidas, llenadas, reportes, visitas, ids) -> 
         cierre = None if estado != "Cerrado" else creado + int(rng.choice((3.5, 5, 6, 7.5, 9, 11, 14)) * D)
         if cierre and cierre > t - 2 * H:
             cierre, estado = None, "En atención"
-        if i is not None:
-            pts = CAUCE[i]
+        if tr:
+            pts = json.loads(tr["puntos"])
             lat, lng = pts[len(pts) // 2]
-            lugar = f"Entre {NODOS[i][1]} y {n[1]} ({motor.largo_km(pts):.1f} km de cauce)"
+            lugar = f"Entre {nodos[tr['desde']][1]} y {n[1]} ({motor.largo_km(pts):.1f} km de cauce)"
         else:
             lat, lng = n[2], n[3]
             lugar = f"Aguas arriba de {n[1]}, antes del primer nodo de la red"
@@ -648,7 +743,7 @@ def _casos(con, rng, t, eventos, crecidas, llenadas, reportes, visitas, ids) -> 
             hist.append(ev(cierre, f"Autoridad ambiental · {amb}", "Caso cerrado; se avisó a quienes reportaron"))
         casos.append({
             "tipo": "descarga", "estado": estado, "prioridad": "Alta" if confianza >= 0.75 or any(motor.estado_lectura(f, u) == "crit" for f in e["filas"]) else "Media",
-            "t": creado, "cerrado": cierre, "tramo": f"T{i + 1}" if i is not None else None, "nodo": nid, "lat": lat, "lng": lng,
+            "t": creado, "cerrado": cierre, "tramo": tr["id"] if tr else None, "nodo": nid, "lat": lat, "lng": lng,
             "estimado": ESTIMADO[e["tipo"]], "confianza": confianza, "muestra": e["folio"], "resumen": resumen, "lab": lab,
             "pico": {k: round(v, 2) for k, v in pico.items()}, "reportes": [r["id"] for r in rep], "historial": hist,
             "confirmado_en": [e["eco"]] if e["eco"] else [], "evento_t": e["ini"], "evento_fin": e["ini"] + e["min"] * MIN,

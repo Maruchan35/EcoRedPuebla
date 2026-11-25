@@ -159,7 +159,7 @@ generar los datos de demostración al arrancar.
 | `js/api.js` | Capa de datos: servidor (sesión, API, WebSocket) o demo sin servidor |
 | `js/app.js` | Sesión, rutas, menú según los permisos de cada persona y avisos en vivo |
 | `js/login.js` | Inicio de sesión y paso de «crea tu contraseña» para cuentas con contraseña temporal |
-| `js/views.js` | Vistas: Resumen (centro de monitoreo), Mapa, Estación piloto, Casos, Nodos, Reportes, Recolección, Predicción, Transparencia, Usuarios, Configuración |
+| `js/views.js` | Vistas: Resumen (centro de monitoreo), Mapa, Riesgo del agua, Estación piloto, Casos, Nodos, Reportes, Recolección, Predicción, Transparencia, Informes y descargas, Red de nodos, Usuarios, Configuración |
 | `js/map.js` | Mapa 3D (MapLibre): relieve real, tramos, columnas 3D por nodo y barrera, satélite, calor. Respaldo 2D con Leaflet si no hay WebGL |
 | `js/engine.js`, `js/charts.js`, `js/ui.js` | Semáforo y pronóstico (Holt-Winters), gráficas Chart.js y minigráficas SVG, utilidades |
 | `js/cauce.js` | Cauce real del Atoyac entre nodos y posición de nodos y barreras (OpenStreetMap) |
@@ -168,9 +168,12 @@ generar los datos de demostración al arrancar.
 | `server/seguridad.py` | Contraseñas (PBKDF2), sesiones, roles, permisos por persona, límite de intentos |
 | `server/motor.py` | Análisis por lote: anomalías (z-score robusto), huella de descarga, localización, fusión, casos, índice diario |
 | `server/simulacion.py` | Modelo de simulación del río y de la estación piloto (datos de demostración, determinista) |
+| `server/red.py` | Red de nodos configurable: alta, cambios y baja sobre el cauce; tramos recalculados; ajustes de la red |
+| `server/riesgo.py` | Riesgo para la salud por contacto con el agua, por tramo |
+| `server/informes.py` | Formatos de los informes: PDF (fpdf2), Excel (openpyxl) y CSV |
 | `server/lotes.py` | Lectura y validación del CSV de la microSD, huella encadenada, generador de ejemplos |
 | `server/db.py`, `server/modelos.py`, `server/semilla.py` | Esquema SQLite, formato de respuestas, datos iniciales |
-| `server/prueba_rapida.py` | Prueba de punta a punta de la API (103 comprobaciones) |
+| `server/prueba_rapida.py` | Prueba de punta a punta de la API (120 comprobaciones) |
 | `server/renovar_cuentas.py` | Deja solo Administración y crea de nuevo una cuenta por rol, cada una con su contraseña |
 | `server/prueba_motor.py` | Prueba del motor sin servidor: tiempo de tránsito del agua entre nodos (base temporal) |
 | `docs/api.md`, `docs/formato-lote.md` | Referencia para la app móvil y para el firmware del nodo |
@@ -198,7 +201,8 @@ las columnas se dibujan sobre un fondo liso. Si la computadora no tiene WebGL se
 ## Pruebas
 Con el servidor encendido, en otra terminal: `python -m server.prueba_rapida`. Recorre inicio de sesión,
 permisos por rol y por persona, contraseña temporal, bitácora, reporte con foto, carga de CSV con descarga,
-huella alterada, casos, usuarios, límite de intentos, estación piloto, series e índice diario, y al final deja los datos de la demo en su punto de
+huella alterada, casos, usuarios, límite de intentos, estación piloto, series e índice diario, riesgo del agua,
+informes y red de nodos (da de alta un nodo de prueba y lo elimina), y al final deja los datos de la demo en su punto de
 partida (las cuentas de prueba que crea se quedan). Sirve para la sección de pruebas del documento.
 
 Sin servidor: `python -m server.prueba_motor` revisa el tiempo de tránsito con una base temporal (la misma
@@ -210,9 +214,36 @@ Para saber si dos anomalías en nodos distintos son la misma descarga, el motor 
 y la velocidad del agua: de **0.3 m/s** (estiaje) a **2 m/s** (crecida), más 30 min de margen por el muestreo.
 Ejemplo: de N3 a N4 hay 16.4 km, así que el agua tarda de unas 2.3 h a 15 h; una anomalía en N4 que aparezca
 en ese rango después de la de N3 se suma al mismo caso, y fuera de él se trata como otra descarga. El mapa
-muestra el largo y el tiempo de cada tramo al tocarlo. Las velocidades están en `server/motor.py`
-(`VEL_MIN_MS`, `VEL_MAX_MS`) y en `js/config.js` (`rio`); conviene calibrarlas con aforos de Conagua o con el
-retraso real de una misma descarga entre dos nodos.
+muestra el largo y el tiempo de cada tramo al tocarlo. Las velocidades se ajustan en **Red de nodos** (valores de
+inicio en `server/motor.py`); conviene calibrarlas con aforos de Conagua o con el retraso real de una misma
+descarga entre dos nodos.
+
+## Red de nodos configurable (Administración)
+Los nodos de la demo son simulados, pero la red se configura completa desde **Red de nodos**:
+- **Alta:** se toca el río en el mapa y el nodo se coloca en el punto del cauce más cercano (a menos de 1.5 km del
+  río y a 300 m o más de otro nodo). Toma valores normales intermedios entre sus vecinos y, en la demo, sus 90 días
+  de datos simulados.
+- **Cambios y baja:** renombrar, cambiar el Tecnológico que le da mantenimiento, moverlo o darlo de baja (sus
+  lecturas se conservan y se puede reactivar). Un nodo dado de baja se puede eliminar para siempre.
+- **Tramos:** con cada cambio los nodos se ordenan río abajo y los tramos T1…Tn se rehacen solos sobre el cauce, con
+  su largo y el tiempo del agua. Los casos y el índice pasan al tramo nuevo que termina en el mismo nodo.
+- **Ajustes:** radio para ligar reportes a un nodo, velocidades del agua (estiaje y crecida) y días sin visita.
+
+Desde el primer cambio la red vive en la base de datos y el arranque ya no la toma de `js/cauce.js`, que sigue
+siendo el trazo del río.
+
+## Riesgo del agua para las personas
+**Riesgo del agua** (público, y la pestaña **El río** de la app) dice por tramo qué tan peligroso es el contacto con
+el agua, porque hay quien se mete a bañar al río aunque no esté permitido. Nunca dice que sea apta: los nodos no
+miden bacterias, metales ni compuestos de tintes, y el río recibe drenaje sin tratar. El nivel parte de «alto» y
+sube a «muy alto» o «extremo» con lecturas fuera de rango y con descargas o crecidas recientes en el tramo, con la
+razón en lenguaje claro y recomendaciones (`server/riesgo.py`, `GET /api/riesgo`).
+
+## Informes para el Ayuntamiento
+**Informes y descargas** genera, para el periodo que se elija: el **informe del periodo en PDF** (índice por tramo,
+casos por dependencia, reportes, agua tratada, basura y riesgo; listo para presentar en Cabildo) y, en **Excel o
+CSV**, el índice diario, las lecturas de los nodos, el resumen de la estación y la basura retirada. Casos y reportes
+ciudadanos solo los descarga el personal, y cada dependencia ve completos los suyos.
 
 ## Seguridad (lo que ya está y lo que falta para un despliegue real)
 - Contraseñas con PBKDF2-SHA256 y sal; sesión en cookie HttpOnly + SameSite; el token solo se guarda como SHA-256.

@@ -58,9 +58,10 @@
   }
   function tramoRows() {
     return S().tramos.map(t => {
-      const r = lastReading(t.to), s = VA.map.tramoStatus(t);
-      const v = (k, d) => r && s !== "off" ? fmt.num(r[k], d) : "—";
-      return `<tr><td><strong>${esc(t.id)}</strong><span class="sub">${esc(t.name)}</span></td><td>${badge(s)}</td>
+      const r = lastReading(t.to), s = VA.map.tramoStatus(t), viejo = s === "off" && r;
+      // Nodo sin visita reciente: su última lectura se muestra en gris con su antigüedad (no se esconde)
+      const v = (k, d) => !r ? "—" : viejo ? `<span class="stale" title="Lectura del ${esc(fmt.date(r.t))}">${fmt.num(r[k], d)}*</span>` : fmt.num(r[k], d);
+      return `<tr><td><strong>${esc(t.id)}</strong><span class="sub">${esc(t.name)}${viejo ? ` · última lectura ${esc(fmt.ago(r.t))}` : ""}</span></td><td>${viejo ? badge("off", "Sin visita reciente") : badge(s)}</td>
         <td class="num">${v("ph", 2)}</td><td class="num">${v("cond")}</td><td class="num">${v("turb")}</td><td class="num">${v("color", 1)}</td></tr>`;
     }).join("");
   }
@@ -252,8 +253,10 @@
       <div class="ops-head"><div><h1>Centro de monitoreo del Alto Atoyac</h1>
         <p>Calidad del río por tramo, casos de cada dependencia y reportes de la ciudadanía · <span id="updAgo">actualizado ${fmt.hm(Date.now())}</span></p></div>
         <div class="ops-actions"><span id="fresh">${frescura()}</span>${demoMenu()}</div></div>
-      ${guest ? `<div class="banner">${icon("info")}<div>Estás viendo la <strong>vista pública</strong>: semáforo del río, mapa, estación piloto y transparencia.
-        El personal de las dependencias entra con su cuenta desde <a href="login.html">Iniciar sesión</a>.</div></div>` : ""}
+      ${guest ? `<div class="banner banner-cta">${icon("info")}<div>Estás viendo la <strong>vista pública</strong>: semáforo del río, mapa, riesgo del agua,
+        estación piloto y transparencia. ¿Viste basura, espuma o una descarga? Repórtalo con foto, sin crear cuenta.
+        El personal de las dependencias entra desde <a href="login.html">Iniciar sesión</a>.</div>
+        <a class="btn btn-primary" href="${C.appCiudadana}">${icon("smartphone")}Reportar un problema</a></div>` : ""}
       <section class="kpis-6" id="kpis" aria-label="Indicadores principales">${kpisHtml()}</section>
       <div class="grid-ops">
         <section class="card" aria-labelledby="mapTitle">
@@ -993,6 +996,332 @@
   }
 
   // =========================================================
+  // RIESGO DEL AGUA (vista pública): qué tan peligroso es el contacto con el río
+  // =========================================================
+  function riesgo(main) {
+    main.innerHTML = `
+      ${pageHead("Riesgo del agua", "Qué tan peligroso es el contacto con el agua en cada tramo, según los sensores y los casos recientes")}
+      <div id="rgAlerta" aria-live="polite"><p class="muted">Consultando los tramos…</p></div>
+      <section class="riesgo-grid" id="rgTramos" aria-label="Riesgo por tramo"></section>
+      <div class="grid-2-even">
+        <section class="card" aria-labelledby="rgQue"><div class="card-head"><h2 id="rgQue">Qué hacer</h2></div>
+          <div class="card-body"><ul class="rg-lista" id="rgRec"></ul></div></section>
+        <section class="card" aria-labelledby="rgNo"><div class="card-head"><h2 id="rgNo">Lo que los sensores no miden</h2></div>
+          <div class="card-body"><ul class="rg-lista" id="rgNoMide"></ul>
+            <p class="muted small" style="margin-top:10px">Eso solo lo dice un análisis de laboratorio. Por eso, aunque un tramo marque «Bien» en el semáforo,
+            el agua no es apta para bañarse.</p></div></section>
+      </div>`;
+    let vivo = true;
+    async function cargar() {
+      let d = null;
+      try { d = await VA.api.riesgo(); } catch (e) { d = null; }
+      if (!vivo || !document.getElementById("rgTramos")) return;
+      if (!d) { document.getElementById("rgAlerta").innerHTML = `<p class="empty">No se pudo consultar el riesgo. Intenta de nuevo en un momento.</p>`; return; }
+      document.getElementById("rgAlerta").innerHTML = `<div class="rg-hero ${d.peor}">${icon("shield-alert")}
+        <div><strong>${esc(d.mensaje)}</strong><span>Los nodos miden pH, conductividad, turbidez, color y nivel. El riesgo nunca es bajo:
+          el río recibe drenaje y descargas industriales sin tratar.</span></div>
+        <a class="btn" href="${C.appCiudadana}">${icon("smartphone")}Reportar un problema</a></div>`;
+      document.getElementById("rgTramos").innerHTML = d.tramos.map(t => `<article class="card rg-tramo ${t.nivel}">
+          <span class="rg-nivel">${icon(t.nivel === "extremo" ? "siren" : "triangle-alert")}${esc(t.etiqueta)}</span>
+          <h3>${esc(t.tramo)} · ${esc(t.nombre)}</h3>
+          <p class="rg-resumen">${esc(t.resumen)}</p>
+          <ul>${t.razones.map(r => `<li>${esc(r)}</li>`).join("")}</ul>
+          <p class="muted small">${t.lectura ? `Última lectura del nodo ${esc(t.nodo)}: ${esc(fmt.date(t.lectura.t))}` : "Sin lecturas todavía"}</p>
+        </article>`).join("");
+      document.getElementById("rgRec").innerHTML = d.recomendaciones.map(r => `<li>${esc(r)}</li>`).join("");
+      document.getElementById("rgNoMide").innerHTML = d.noMide.map(r => `<li>${esc(r)}</li>`).join("");
+      refreshIcons();
+    }
+    cargar();
+    return {
+      update(msg) { if (msg.tipo === "sync") cargar(); },
+      destroy() { vivo = false; }
+    };
+  }
+
+  // =========================================================
+  // RED DE NODOS (Administración): alta, cambios y baja de nodos sobre el río
+  // =========================================================
+  function red(main) {
+    let datos = null, mapa = null, capa = null, provisional = null, vivo = true, modo = { tipo: "alta" };
+    const horas = h => h < 1 ? `${Math.round(h * 60)} min` : `${fmt.num(h, 1)} h`;
+    main.innerHTML = `
+      ${pageHead("Red de nodos", "Da de alta nodos sobre el río, cámbialos de lugar o dalos de baja. Los tramos entre nodos vecinos se recalculan solos.")}
+      <div class="grid-ops">
+        <section class="card" aria-labelledby="redMapaTitle">
+          <div class="card-head"><h2 id="redMapaTitle">Mapa de la red</h2><span class="muted small" id="redModo" aria-live="polite"></span></div>
+          <div class="card-body"><div id="redMapa" class="red-mapa" role="application" aria-label="Mapa del río: toca la línea del río para agregar un nodo"></div>
+            <p class="muted small" style="margin-top:8px">La línea celeste es el cauce del Atoyac (© colaboradores de OpenStreetMap). Toca el río para agregar
+              un nodo: se coloca en el punto del cauce más cercano. Debe quedar a menos de 1.5 km del río y a 300 m o más de otro nodo.</p></div>
+        </section>
+        <section class="card" aria-labelledby="redNodosTitle">
+          <div class="card-head"><h2 id="redNodosTitle">Nodos en orden río abajo</h2></div>
+          <div class="card-body" id="redForm" hidden></div>
+          <div class="card-body" id="redNodos"><p class="muted">Cargando la red…</p></div>
+        </section>
+      </div>
+      <div class="grid-ops">
+        <section class="card" aria-labelledby="redTramosTitle">
+          <div class="card-head"><h2 id="redTramosTitle">Tramos entre nodos</h2><span class="muted small">Se recalculan solos con cada cambio</span></div>
+          <div class="card-body table-wrap"><table class="data"><thead><tr><th>Tramo</th><th>Recorrido</th><th class="num">Largo</th><th>Tiempo del agua</th></tr></thead>
+            <tbody id="redTramos"></tbody></table></div>
+        </section>
+        <section class="card" aria-labelledby="redAjTitle">
+          <div class="card-head"><h2 id="redAjTitle">Ajustes de la red</h2></div>
+          <form class="card-body form-grid" id="redAjustes" novalidate>
+            <div class="field"><label for="ajRadio">Radio para ligar reportes a un nodo (km)</label>
+              <input id="ajRadio" type="number" min="0.2" max="20" step="0.1" required aria-describedby="ajRadioHelp">
+              <span class="help" id="ajRadioHelp">Un reporte de la app a esta distancia o menos de un nodo se cruza con sus lecturas.</span></div>
+            <div class="field"><label for="ajVmin">Velocidad del agua en estiaje (m/s)</label><input id="ajVmin" type="number" min="0.05" max="5" step="0.05" required></div>
+            <div class="field"><label for="ajVmax">Velocidad del agua en crecida (m/s)</label>
+              <input id="ajVmax" type="number" min="0.1" max="10" step="0.1" required aria-describedby="ajVHelp">
+              <span class="help" id="ajVHelp">Con estas dos se calcula cuánto tarda el agua de un nodo al siguiente: así se sabe si dos anomalías son la misma descarga.</span></div>
+            <div class="field"><label for="ajDias">Días sin visita para marcar un nodo en gris</label><input id="ajDias" type="number" min="1" max="60" step="1" required></div>
+            <p class="form-error" id="ajErr" role="alert" hidden></p>
+            <div class="btn-row"><button class="btn btn-primary" type="submit" id="ajGuardar">${icon("save")}Guardar ajustes</button></div>
+          </form>
+        </section>
+      </div>`;
+
+    function avisoModo() {
+      const el = document.getElementById("redModo");
+      if (!el) return;
+      el.innerHTML = modo.tipo === "mover"
+        ? `Toca el nuevo lugar de ${esc(modo.id)} sobre el río · <button class="btn-link" type="button" id="redCancelarMover">Cancelar</button>`
+        : modo.tipo === "ocupado" ? esc(modo.texto) : "Toca el río para agregar un nodo";
+      const c = document.getElementById("redCancelarMover");
+      if (c) c.addEventListener("click", () => { modo = { tipo: "alta" }; avisoModo(); });
+    }
+    function cerrarForm() {
+      const box = document.getElementById("redForm");
+      if (box) { box.hidden = true; box.innerHTML = ""; }
+      if (provisional) { provisional.remove(); provisional = null; }
+    }
+    function ocupado(si, texto = "") {
+      main.setAttribute("aria-busy", si ? "true" : "false");
+      main.querySelectorAll("#redNodos button, #redForm button, #ajGuardar").forEach(b => { b.disabled = si; });
+      modo = si ? { tipo: "ocupado", texto } : (modo.tipo === "ocupado" ? { tipo: "alta" } : modo);
+      avisoModo();
+    }
+    async function guardar(accion, texto, errId) {
+      ocupado(true, texto);
+      try {
+        datos = await accion();
+        cerrarForm();
+        modo = { tipo: "alta" };
+        pintar();
+        await VA.api.refresh();
+        return true;
+      } catch (err) {
+        const box = errId && document.getElementById(errId);
+        if (box) { box.textContent = err.message; box.hidden = false; } else toast("warn", "No se pudo guardar", err.message);
+        return false;
+      } finally {
+        if (vivo) ocupado(false);
+      }
+    }
+    function formulario(f) {
+      const box = document.getElementById("redForm");
+      box.hidden = false;
+      box.innerHTML = `<form class="form-grid red-form" id="redFormNodo" novalidate>
+          <h3>${esc(f.titulo)}</h3>
+          ${f.id ? "" : `<p class="muted small" style="margin:0">Se colocará en el punto del río más cercano a donde tocaste. En la demo se generan sus 90 días de datos simulados.</p>`}
+          <div class="field"><label for="rfNombre">Nombre y lugar</label>
+            <input id="rfNombre" type="text" maxlength="80" required value="${esc(f.nombre)}" placeholder="Municipio · puente o referencia"></div>
+          <div class="field"><label for="rfTec">Tecnológico que le da mantenimiento</label>
+            <input id="rfTec" type="text" maxlength="80" value="${esc(f.tec || "")}" placeholder="Ej. TecNM Puebla"></div>
+          <p class="form-error" id="rfErr" role="alert" hidden></p>
+          <div class="btn-row"><button class="btn btn-primary" type="submit">${icon("save")}${f.id ? "Guardar cambios" : "Dar de alta"}</button>
+            <button class="btn btn-ghost" type="button" id="rfCancelar">Cancelar</button></div>
+        </form>`;
+      document.getElementById("rfCancelar").addEventListener("click", cerrarForm);
+      document.getElementById("redFormNodo").addEventListener("submit", e => {
+        e.preventDefault();
+        const nombre = document.getElementById("rfNombre").value.trim(), tec = document.getElementById("rfTec").value.trim();
+        if (nombre.length < 3) {
+          const err = document.getElementById("rfErr");
+          err.textContent = "Escribe un nombre de al menos 3 letras, por ejemplo el municipio y el puente."; err.hidden = false;
+          document.getElementById("rfNombre").focus();
+          return;
+        }
+        guardar(() => f.id ? VA.api.red.editar(f.id, { nombre, tec }) : VA.api.red.alta({ nombre, tec, lat: f.lat, lng: f.lng }),
+          f.id ? "Guardando cambios…" : "Dando de alta el nodo y generando sus datos simulados…", "rfErr");
+      });
+      refreshIcons();
+      document.getElementById("rfNombre").focus();
+    }
+    function editar(id) {
+      const n = datos.nodos.find(x => x.id === id);
+      if (n) formulario({ titulo: `Editar ${n.id}`, id: n.id, nombre: n.nombre, tec: n.tec });
+    }
+    function alTocarMapa(p) {
+      if (modo.tipo === "ocupado") return;
+      if (modo.tipo === "mover") {
+        const id = modo.id;
+        guardar(() => VA.api.red.editar(id, { lat: p.lat, lng: p.lng }), `Moviendo ${id} y recalculando tramos…`);
+        return;
+      }
+      if (provisional) provisional.remove();
+      provisional = window.L.circleMarker(p, { radius: 9, color: "#B45309", fillColor: "#F59E0B", fillOpacity: .9 }).addTo(mapa);
+      formulario({ titulo: "Nuevo nodo", nombre: "", tec: "", lat: p.lat, lng: p.lng });
+    }
+    function dibujarMapa() {
+      const L = window.L, el = document.getElementById("redMapa");
+      if (!L || !el) { if (el) el.innerHTML = `<p class="empty">El mapa no cargó; revisa la conexión a internet.</p>`; return; }
+      if (!mapa) {
+        mapa = L.map(el, { scrollWheelZoom: false });
+        L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© colaboradores de OpenStreetMap" }).addTo(mapa);
+        L.polyline(datos.curso, { color: "#7DD3FC", weight: 9, opacity: .7 }).addTo(mapa);
+        mapa.fitBounds(L.polyline(datos.curso).getBounds(), { padding: [24, 24] });
+        mapa.on("click", e => alTocarMapa(e.latlng));
+      }
+      if (capa) capa.remove();
+      capa = L.layerGroup().addTo(mapa);
+      datos.tramos.forEach((t, i) => L.polyline(t.points, { color: i % 2 ? "#0369A1" : "#0EA5E9", weight: 5 })
+        .bindTooltip(`${t.id} · ${fmt.num(t.km, 1)} km`).addTo(capa));
+      datos.baja.forEach(n => L.circleMarker([n.lat, n.lng], { radius: 6, color: "#64748B", fillColor: "#CBD5E1", fillOpacity: .9 })
+        .bindTooltip(`${n.id} · dado de baja`).addTo(capa));
+      datos.nodos.forEach(n => L.marker([n.lat, n.lng], {
+        title: `${n.id} · ${n.nombre}`, keyboard: true,
+        icon: L.divIcon({ className: "red-pin", html: `<span>${esc(n.id)}</span>`, iconSize: [34, 34], iconAnchor: [17, 17] })
+      }).on("click", () => editar(n.id)).addTo(capa));
+    }
+    function pintar() {
+      if (!vivo || !document.getElementById("redNodos")) return;
+      const n = datos.nodos;
+      document.getElementById("redNodos").innerHTML = `
+        <ol class="red-lista">${n.map((x, i) => `<li>
+          <div><strong>${esc(x.id)} · ${esc(x.nombre)}</strong>
+            <span class="sub">km ${fmt.num(x.km, 1)} del río${x.tec ? ` · ${esc(x.tec)}` : ""}${i < n.length - 1 ? ` · ${fmt.num(n[i + 1].km - x.km, 1)} km al siguiente` : ""}</span></div>
+          <div class="btn-row nowrap">
+            <button class="btn btn-ghost btn-icon" type="button" data-acc="editar" data-id="${esc(x.id)}" aria-label="Editar ${esc(x.id)}" title="Editar">${icon("pencil")}</button>
+            <button class="btn btn-ghost btn-icon" type="button" data-acc="mover" data-id="${esc(x.id)}" aria-label="Mover ${esc(x.id)} en el mapa" title="Mover">${icon("move")}</button>
+            <button class="btn btn-ghost btn-icon" type="button" data-acc="baja" data-id="${esc(x.id)}" aria-label="Dar de baja ${esc(x.id)}" title="Dar de baja">${icon("power")}</button>
+          </div></li>`).join("")}</ol>
+        ${datos.baja.length ? `<h3 class="red-sub">Dados de baja</h3><ul class="red-lista">${datos.baja.map(x => `<li>
+          <div><strong>${esc(x.id)} · ${esc(x.nombre)}</strong><span class="sub">km ${fmt.num(x.km, 1)} · sus lecturas se conservan</span></div>
+          <div class="btn-row nowrap"><button class="btn btn-secondary" type="button" data-acc="reactivar" data-id="${esc(x.id)}">${icon("undo-2")}Reactivar</button>
+            <button class="btn btn-ghost btn-icon" type="button" data-acc="eliminar" data-id="${esc(x.id)}" aria-label="Eliminar ${esc(x.id)} para siempre" title="Eliminar para siempre">${icon("trash-2")}</button></div></li>`).join("")}</ul>` : ""}
+        <p class="muted small" style="margin:10px 0 0">El río cargado mide ${fmt.num(datos.largoRioKm, 1)} km. Para agregar un nodo, toca el río en el mapa.</p>`;
+      document.getElementById("redTramos").innerHTML = datos.tramos.map(t => `<tr><td><strong>${esc(t.id)}</strong></td><td>${esc(t.name)}</td>
+        <td class="num">${fmt.num(t.km, 1)} km</td><td>${t.transitH ? `${horas(t.transitH[0])} a ${horas(t.transitH[1])}` : "—"}</td></tr>`).join("");
+      dibujarMapa();
+      avisoModo();
+      refreshIcons();
+    }
+    document.getElementById("redNodos").addEventListener("click", e => {
+      const b = e.target.closest("[data-acc]");
+      if (!b || b.disabled) return;
+      const id = b.dataset.id, n = [...datos.nodos, ...datos.baja].find(x => x.id === id);
+      if (b.dataset.acc === "editar") editar(id);
+      if (b.dataset.acc === "mover") { cerrarForm(); modo = { tipo: "mover", id }; avisoModo(); document.getElementById("redMapa").scrollIntoView({ block: "nearest" }); }
+      if (b.dataset.acc === "baja" && confirm(`¿Dar de baja ${id} · ${n.nombre}? Sus lecturas se conservan y sus dos tramos se unen en uno. Se puede reactivar después.`)) {
+        guardar(() => VA.api.red.baja(id), `Dando de baja ${id} y recalculando tramos…`);
+      }
+      if (b.dataset.acc === "reactivar") guardar(() => VA.api.red.reactivar(id), `Reactivando ${id}…`);
+      if (b.dataset.acc === "eliminar" && confirm(`¿Eliminar ${id} · ${n.nombre} para siempre? Se borran también todas sus lecturas. No se puede deshacer.`)) {
+        guardar(() => VA.api.red.eliminar(id), `Eliminando ${id}…`);
+      }
+    });
+    document.getElementById("redAjustes").addEventListener("submit", e => {
+      e.preventDefault();
+      const err = document.getElementById("ajErr"); err.hidden = true;
+      const val = id => Number(document.getElementById(id).value);
+      const d = { radio_km: val("ajRadio"), vel_min: val("ajVmin"), vel_max: val("ajVmax"), dias_sin_visita: Math.round(val("ajDias")) };
+      if (!(d.vel_min > 0 && d.vel_max > d.vel_min)) { err.textContent = "La velocidad en crecida debe ser mayor que la de estiaje."; err.hidden = false; return; }
+      guardar(() => VA.api.red.ajustes(d), "Guardando ajustes…", "ajErr")
+        .then(ok => { if (ok) toast("info", "Ajustes guardados", "El tiempo del agua y el radio de reportes ya usan los valores nuevos."); });
+    });
+    (async () => {
+      try { datos = await VA.api.red.ver(); } catch (err) {
+        if (vivo) document.getElementById("redNodos").innerHTML = `<p class="empty">${esc(err.message)}</p>`;
+        return;
+      }
+      if (!vivo) return;
+      const a = datos.ajustes;
+      document.getElementById("ajRadio").value = a.radio_km;
+      document.getElementById("ajVmin").value = a.vel_min;
+      document.getElementById("ajVmax").value = a.vel_max;
+      document.getElementById("ajDias").value = a.dias_sin_visita;
+      pintar();
+    })();
+    return { destroy() { vivo = false; if (mapa) { mapa.remove(); mapa = null; } } };
+  }
+
+  // =========================================================
+  // INFORMES Y DESCARGAS: PDF para presentar, Excel o CSV para analizar
+  // =========================================================
+  function informes(main) {
+    const personal = !!VA.session.user && C.roles[role()].staff;
+    const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const mas = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+    const hoy = new Date();
+    const PERIODOS = {
+      "30": () => [mas(hoy, -29), hoy],
+      "7": () => [mas(hoy, -6), hoy],
+      mes: () => [new Date(hoy.getFullYear(), hoy.getMonth(), 1), hoy],
+      mesAnt: () => [new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1), new Date(hoy.getFullYear(), hoy.getMonth(), 0)]
+    };
+    const ITEMS = [
+      { id: "informe", ic: "file-text", titulo: "Informe del periodo", fmts: ["pdf"],
+        desc: "Para presentar en Cabildo: índice por tramo, casos por dependencia, reportes ciudadanos, agua tratada, basura retirada y riesgo para la salud." },
+      { id: "indice", ic: "gauge", titulo: "Índice diario por tramo", fmts: ["xlsx", "csv"],
+        desc: "Un registro por tramo y por día con su índice de 0 a 100 y su estado." },
+      { id: "lecturas", ic: "activity", titulo: "Lecturas de los nodos", fmts: ["xlsx", "csv"],
+        desc: "Cada lectura (una cada 10 minutos) con pH, conductividad, turbidez, color, temperatura, nivel y anomalías. Hasta 92 días; se puede elegir el nodo." },
+      { id: "estacion", ic: "factory", titulo: "Estación piloto EP-1", fmts: ["xlsx", "csv"],
+        desc: "Resumen por día: agua tratada, remoción de turbidez, color y conductividad, sólidos retenidos y energía solar." },
+      { id: "basura", ic: "trash-2", titulo: "Basura retirada", fmts: ["xlsx", "csv"],
+        desc: "Cada vaciado de las barreras con su fecha y los kilos estimados." },
+      { id: "casos", ic: "folder-open", titulo: "Casos", fmts: ["xlsx", "csv"], personal: true,
+        desc: "Folio, tipo, dependencia, estado, fechas y días de atención. Cada dependencia ve completos los suyos." },
+      { id: "reportes", ic: "smartphone", titulo: "Reportes ciudadanos", fmts: ["xlsx", "csv"], personal: true,
+        desc: "Folio, categoría, estado, ubicación con su margen de GPS, clasificación de la IA y texto del reporte." }
+    ];
+    const FORMATO = { pdf: ["file-text", "PDF"], xlsx: ["file-spreadsheet", "Excel"], csv: ["file-down", "CSV"] };
+    main.innerHTML = `
+      ${pageHead("Informes y descargas", "Información del Alto Atoyac lista para el Ayuntamiento: PDF para presentar, Excel o CSV para analizar")}
+      <section class="card" aria-labelledby="infPerTitle">
+        <div class="card-head"><h2 id="infPerTitle">Periodo</h2></div>
+        <div class="card-body form-grid cols">
+          <div class="field"><label for="infPeriodo">Periodo</label><select id="infPeriodo">
+            <option value="30">Últimos 30 días</option><option value="7">Últimos 7 días</option><option value="mes">Este mes</option>
+            <option value="mesAnt">Mes pasado</option><option value="otro">Otras fechas</option></select></div>
+          <div class="field"><label for="infDesde">Desde</label><input id="infDesde" type="date"></div>
+          <div class="field"><label for="infHasta">Hasta</label><input id="infHasta" type="date"></div>
+          <div class="field"><label for="infNodo">Nodo (solo para lecturas)</label><select id="infNodo"><option value="">Todos los nodos</option>
+            ${S().nodes.map(n => `<option value="${esc(n.id)}">${esc(n.id)} · ${esc(n.name)}</option>`).join("")}</select></div>
+        </div>
+      </section>
+      <section class="inf-grid" aria-label="Informes disponibles">${ITEMS.map(it => `
+        <article class="card inf-item">
+          <h3>${icon(it.ic)}${esc(it.titulo)}</h3>
+          <p class="muted small">${esc(it.desc)}</p>
+          ${it.personal && !personal
+            ? `<p class="small inf-lock">${icon("lock")}<span>Solo para el personal de las dependencias. <a href="login.html">Iniciar sesión</a></span></p>`
+            : `<div class="btn-row">${it.fmts.map(f => `<a class="btn btn-secondary" data-inf="${it.id}" data-fmt="${f}" href="#" download>${icon(FORMATO[f][0])}${FORMATO[f][1]}</a>`).join("")}</div>`}
+        </article>`).join("")}</section>`;
+    const periodo = document.getElementById("infPeriodo"), desde = document.getElementById("infDesde"),
+      hasta = document.getElementById("infHasta"), nodo = document.getElementById("infNodo");
+    function enlaces() {
+      main.querySelectorAll("[data-inf]").forEach(a => {
+        const n = a.dataset.inf === "lecturas" && nodo.value ? `&nodo=${encodeURIComponent(nodo.value)}` : "";
+        a.href = `/api/informes/${a.dataset.inf}.${a.dataset.fmt}?desde=${desde.value}&hasta=${hasta.value}${n}`;
+      });
+    }
+    function aplicarPeriodo() {
+      if (PERIODOS[periodo.value]) { const [a, b] = PERIODOS[periodo.value](); desde.value = iso(a); hasta.value = iso(b); }
+      enlaces();
+    }
+    periodo.addEventListener("change", aplicarPeriodo);
+    [desde, hasta].forEach(el => el.addEventListener("change", () => { periodo.value = "otro"; enlaces(); }));
+    nodo.addEventListener("change", enlaces);
+    aplicarPeriodo();
+    refreshIcons();
+    return {};
+  }
+
+  // =========================================================
   // TRANSPARENCIA (vista pública)
   // =========================================================
   function transparencia(main) {
@@ -1267,5 +1596,5 @@
     return {};
   }
 
-  VA.views = { resumen, mapa, estacion, casos, nodos, reportes, recoleccion, prediccion, transparencia, usuarios, config, openCase, passwordDialog };
+  VA.views = { resumen, mapa, riesgo, estacion, casos, nodos, reportes, recoleccion, prediccion, transparencia, informes, red, usuarios, config, openCase, passwordDialog };
 })();

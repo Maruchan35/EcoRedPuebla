@@ -10,6 +10,7 @@ Variables de entorno:
 """
 import json
 import os
+from datetime import date, datetime
 import re
 import secrets
 import sys
@@ -24,7 +25,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
-from . import lotes, modelos, motor, seguridad, semilla
+from . import informes, lotes, modelos, motor, red, riesgo, seguridad, semilla
 from .db import FOTOS, ahora, conectar, guardar_ajuste, leer_ajuste, siguiente, transaccion
 
 for _flujo in (sys.stdout, sys.stderr):              # consolas de Windows sin UTF-8: que un acento no detenga el arranque
@@ -45,6 +46,8 @@ app = FastAPI(title="Vigía Atoyac", version="0.2.0", docs_url="/api/docs", redo
               description="API de la plataforma central: sesión, reportes de la app, casos y carga por lote de los nodos.")
 con = conectar()
 catalogo_nuevo = semilla.catalogo(con)                  # True si se creó o si cambiaron posiciones de nodos y tramos
+# Radio para ligar reportes, velocidades del agua y días sin visita que haya guardado Administración
+DIAS_SIN_VISITA = red.aplicar_ajustes(con)["dias_sin_visita"]
 if DEMO:
     semilla.cuentas_demo(con)
     # Los reportes y casos de la demo se ubican sobre el cauce: si el cauce cambió, se vuelven a generar
@@ -501,7 +504,10 @@ async def estado(u: Optional[dict] = Depends(actual)):
         # Basura retirada de las barreras (de los vaciados registrados) y estaciones de tratamiento
         "basura": {"kg30": _kg_desde(ahora() - 30 * D), "kg90": _kg_desde(ahora() - 90 * D),
                    "vaciados30": con.execute("SELECT COUNT(*) AS c FROM vaciados WHERE t >= ?", (ahora() - 30 * D,)).fetchone()["c"]},
-        "estaciones": [{"nodo": k, "codigo": v["codigo"], "nombre": v["nombre"]} for k, v in semilla.ESTACIONES.items()],
+        "estaciones": [{"nodo": k, "codigo": v["codigo"], "nombre": v["nombre"]} for k, v in semilla.ESTACIONES.items()
+                       if any(n["id"] == k for n in nodos)],
+        # Ajustes de la red que también usa la web (tiempo del agua en el mapa y reportes cercanos a cada nodo)
+        "red": {"velMin": motor.VEL_MIN_MS, "velMax": motor.VEL_MAX_MS, "radioKm": motor.RADIO_FUSION_KM},
     }
 
 
@@ -610,6 +616,8 @@ async def estacion(nodo: str = "N3", dias: int = 7):
     cols = "t, anom, ph, cond, turb, color, temp, nivel, " + ", ".join(motor.ESTACION)
     ultima = con.execute("SELECT MAX(t) AS m FROM lecturas WHERE nodo = ? AND caudal IS NOT NULL", (nodo,)).fetchone()["m"]
     n = con.execute("SELECT nombre, lat, lng, ultima_descarga, bateria FROM nodos WHERE id = ?", (nodo,)).fetchone()
+    if not n:
+        raise HTTPException(404, "El nodo de esa estación está dado de baja.")
     base = {"nodo": nodo, **meta, "nombreNodo": n["nombre"], "lat": n["lat"], "lng": n["lng"], "ultimaVisita": n["ultima_descarga"]}
     if not ultima:
         return {**base, "hasta": None, "kpis": None, "serie": [], "mantenimiento": []}
@@ -669,6 +677,339 @@ async def estacion(nodo: str = "N3", dias: int = 7):
     return {**base, "hasta": ultima, "kpis": kpis, "mantenimiento": eventos[:12], "eficienciaColorDiaria": efic_dia,
             "serie": _agrupar(filas, H, ("turb", "turb_sal", "color", "color_sal", "cond", "cond_sal", "ph", "ph_sal",
                                           "caudal", "lodos", "dp_filtro", "solar", "nivel"))}
+
+
+@app.get("/api/riesgo", tags=["datos"])
+async def riesgo_agua():
+    """Riesgo para la salud por contacto con el agua, por tramo. Público: es para quien se acerca al río.
+    Nunca dice que sea apto para bañarse, porque los sensores no miden bacterias ni metales."""
+    return riesgo.calcular(con, ahora(), DIAS_SIN_VISITA)
+
+
+# ---------- Informes descargables para el Ayuntamiento (PDF, Excel y CSV) ----------
+TIPOS_CASO = {"descarga": "Descarga", "inundacion": "Crecida o inundación", "basura": "Basura acumulada",
+              "recurrente": "Punto crítico recurrente"}
+INFORMES = {                                                     # nombre: (título, solo para el personal)
+    "informe": ("Informe del periodo", False),
+    "indice": ("Índice diario por tramo", False),
+    "lecturas": ("Lecturas de los nodos", False),
+    "estacion": ("Estación piloto: resumen diario", False),
+    "basura": ("Basura retirada de las barreras", False),
+    "casos": ("Casos", True),
+    "reportes": ("Reportes ciudadanos", True),
+}
+MEDIOS = {"xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "csv": "text/csv; charset=utf-8", "pdf": "application/pdf"}
+
+
+def _dia(texto: str) -> int:
+    try:
+        return (datetime.strptime(texto, "%Y-%m-%d").date() - date(1970, 1, 1)).days
+    except ValueError:
+        raise HTTPException(422, "Usa fechas con el formato AAAA-MM-DD.")
+
+
+def _periodo(desde, hasta, dias=30):
+    """Días completos en hora del centro → (inicio_ms, fin_ms, etiqueta legible, rango para el nombre del archivo)."""
+    fin = _dia(hasta) if hasta else motor.dia_local(ahora())
+    ini = _dia(desde) if desde else fin - dias + 1
+    ini, fin = min(ini, fin), max(ini, fin)
+    if fin - ini > 366:
+        raise HTTPException(422, "El periodo máximo es de un año.")
+    t0, t1 = ini * D + 6 * H, (fin + 1) * D + 6 * H - 1
+    f0, f1 = informes.fecha(t0), informes.fecha(t1)
+    etiqueta = f"{f0.day} {motor.MESES[f0.month - 1]} {f0.year} al {f1.day} {motor.MESES[f1.month - 1]} {f1.year}"
+    return t0, t1, etiqueta, f"{f0:%Y-%m-%d}_{f1:%Y-%m-%d}"
+
+
+def _estado_indice(v):
+    return "Bien" if v >= 70 else "Atención" if v >= 40 else "Crítico"
+
+
+def _tabla_indice(t0, t1):
+    nombres = {f["id"]: f["nombre"] for f in con.execute("SELECT id, nombre FROM tramos")}
+    filas = [{"tramo": f["tramo"], "nombre": nombres.get(f["tramo"], ""), "dia": informes.fecha(f["t"]), "v": f["v"],
+              "estado": _estado_indice(f["v"])}
+             for f in con.execute("SELECT tramo, t, v FROM indice_diario WHERE t BETWEEN ? AND ? ORDER BY tramo, t", (t0, t1))]
+    return [("tramo", "Tramo", 8, None), ("nombre", "Recorrido", 40, None), ("dia", "Día", 12, "fecha"),
+            ("v", "Índice (0 a 100)", 15, "0"), ("estado", "Estado", 12, None)], filas
+
+
+def _tabla_lecturas(t0, t1, nodo):
+    if t1 - t0 > 92 * D:
+        raise HTTPException(422, "Para las lecturas el periodo máximo es de 92 días.")
+    campos = ("ph", "cond", "turb", "color", "temp", "nivel") + motor.ESTACION
+    filtro, args = (" AND nodo = ?", (t0, t1, nodo)) if nodo else ("", (t0, t1))
+    filas = []
+    for f in con.execute(f"SELECT nodo, t, anom, {', '.join(campos)} FROM lecturas WHERE t BETWEEN ? AND ?{filtro} ORDER BY nodo, t", args):
+        anom = json.loads(f["anom"]) if f["anom"] and f["anom"] != "[]" else []
+        filas.append({"nodo": f["nodo"], "t": informes.fecha(f["t"]), "anom": ", ".join(motor.NOMBRE.get(k, k) for k in anom),
+                      **{k: f[k] for k in campos}})
+    cols = [("nodo", "Nodo", 7, None), ("t", "Fecha y hora", 17, "fechahora"), ("ph", "pH", 7, "0.00"),
+            ("cond", "Conductividad (µS/cm)", 14, "0"), ("turb", "Turbidez (NTU)", 11, "0.0"), ("color", "Color 620 nm (m⁻¹)", 13, "0.00"),
+            ("temp", "Temperatura (°C)", 12, "0.0"), ("nivel", "Nivel (m)", 9, "0.00"), ("anom", "Anomalía", 18, None)]
+    if any(r["caudal"] is not None for r in filas):            # nodo con estación piloto
+        cols += [("caudal", "Caudal EP-1 (L/s)", 12, "0.0"), ("turb_sal", "Turbidez salida (NTU)", 13, "0.0"),
+                 ("color_sal", "Color salida (m⁻¹)", 12, "0.00"), ("cond_sal", "Conductividad salida", 13, "0"),
+                 ("ph_sal", "pH salida", 9, "0.00"), ("lodos", "Lodos (%)", 9, "0"), ("dp_filtro", "Presión filtros (kPa)", 13, "0.0"),
+                 ("solar", "Solar (W)", 9, "0")]
+    return cols, filas
+
+
+def _tabla_estacion(t0, t1):
+    filas = []
+    for nodo, meta in semilla.ESTACIONES.items():
+        lect = con.execute("""SELECT t, caudal, turb, turb_sal, color, color_sal, cond, cond_sal, lodos, dp_filtro, solar FROM lecturas
+                              WHERE nodo = ? AND caudal IS NOT NULL AND t BETWEEN ? AND ? ORDER BY t""", (nodo, t0, t1)).fetchall()
+        por_dia = {}
+        for f in lect:
+            por_dia.setdefault(motor.dia_local(f["t"]), []).append(f)
+        for k in sorted(por_dia):
+            v = por_dia[k]
+            solidos = sum(1.3 * max(0.0, (a["turb"] or 0) - (a["turb_sal"] or 0)) * (a["caudal"] or 0) * min(b["t"] - a["t"], 20 * 60 * 1000) / 1000
+                          for a, b in zip(v, v[1:])) / 1e6
+            filas.append({"estacion": meta["codigo"], "dia": informes.fecha(k * D + 6 * H), "horas": round(_cubierto(v) / H, 1),
+                          "m3": round(_integra(v, "caudal") / 1000, 1), "solidos": round(solidos, 2), "energia": round(_integra(v, "solar") / 3600),
+                          **{"rem_" + p: _remocion(v, p, p + "_sal") for p in ("turb", "color", "cond")},
+                          "lodos": max((f["lodos"] for f in v if f["lodos"] is not None), default=None),
+                          "dp": max((f["dp_filtro"] for f in v if f["dp_filtro"] is not None), default=None)})
+    return [("estacion", "Estación", 9, None), ("dia", "Día", 12, "fecha"), ("horas", "Horas con datos", 11, "0.0"),
+            ("m3", "Agua tratada (m³)", 13, "0.0"), ("rem_turb", "Remoción de turbidez", 13, "%"), ("rem_color", "Remoción de color", 13, "%"),
+            ("rem_cond", "Remoción de conductividad", 15, "%"), ("solidos", "Sólidos retenidos (kg)", 14, "0.00"),
+            ("energia", "Energía solar (Wh)", 13, "0"), ("lodos", "Lodos máximo (%)", 11, "0"), ("dp", "Presión de filtros máxima (kPa)", 15, "0.0")], filas
+
+
+def _tabla_basura(t0, t1, personal):
+    nombres = {f["id"]: f["nombre"] for f in con.execute("SELECT id, nombre FROM barreras")}
+    filas = [{"barrera": f["barrera"], "nombre": nombres.get(f["barrera"], ""), "t": informes.fecha(f["t"]), "kg": f["kg"], "quien": f["quien"]}
+             for f in con.execute("SELECT barrera, t, kg, quien FROM vaciados WHERE t BETWEEN ? AND ? ORDER BY t", (t0, t1))]
+    cols = [("barrera", "Barrera", 8, None), ("nombre", "Ubicación", 36, None), ("t", "Vaciado", 17, "fechahora"), ("kg", "Basura (kg)", 11, "0")]
+    return (cols + [("quien", "Registró", 32, None)] if personal else cols), filas
+
+
+def _tabla_casos(u, t0, t1):
+    deps, filas = _deps(u), []
+    for f in con.execute("SELECT * FROM casos WHERE t BETWEEN ? AND ? ORDER BY t", (t0, t1)):
+        c = modelos.caso_api(f, f["dep"] in deps)                # los de otra dependencia, en versión pública
+        filas.append({"id": c["id"], "tipo": TIPOS_CASO.get(c["type"], c["type"]), "dep": motor.DEPENDENCIAS.get(c["dep"], c["dep"]),
+                      "estado": c["status"], "prioridad": c["priority"], "creado": informes.fecha(c["t"]),
+                      "cerrado": informes.fecha(c["closedAt"]), "dias": round((c["closedAt"] - c["t"]) / D, 1) if c["closedAt"] else None,
+                      "tramo": c["tramo"], "nodo": c["node"], "barrera": c["barrier"],
+                      "resumen": c.get("summary") or ("El detalle lo ve la dependencia responsable" if c["public"] else "")})
+    return [("id", "Folio", 15, None), ("tipo", "Tipo", 22, None), ("dep", "Dependencia", 20, None), ("estado", "Estado", 12, None),
+            ("prioridad", "Prioridad", 10, None), ("creado", "Abierto", 17, "fechahora"), ("cerrado", "Cerrado", 17, "fechahora"),
+            ("dias", "Días de atención", 11, "0.0"), ("tramo", "Tramo", 8, None), ("nodo", "Nodo", 7, None), ("barrera", "Barrera", 8, None),
+            ("resumen", "Resumen", 60, None)], filas
+
+
+def _tabla_reportes(u, t0, t1):
+    filas = []
+    for f in con.execute("SELECT * FROM reportes WHERE t BETWEEN ? AND ? ORDER BY t", (t0, t1)):
+        r = modelos.reporte_api(f, True, u["id"])
+        filas.append({"id": r["id"], "cat": r["cat"], "estado": r["status"], "t": informes.fecha(r["t"]), "lat": r["lat"], "lng": r["lng"],
+                      "loc": {"gps": "GPS", "mapa": "Marcado en el mapa"}.get(r.get("loc"), "Sin dato"), "precision": r.get("precision"),
+                      "ia": r["ai"]["label"] if r["ai"] else None, "conf": r["ai"]["conf"] if r["ai"] else None,
+                      "anonimo": "Sí" if r["anonymous"] else "No", "foto": "Sí" if r["photo"] else "No", "texto": r["text"]})
+    return [("id", "Folio", 9, None), ("cat", "Categoría", 18, None), ("estado", "Estado", 11, None), ("t", "Recibido", 17, "fechahora"),
+            ("lat", "Latitud", 11, None), ("lng", "Longitud", 11, None), ("loc", "Ubicación", 17, None), ("precision", "Margen GPS (m)", 11, "0.0"),
+            ("ia", "Clasificación IA", 18, None), ("conf", "Confianza IA", 11, "%"), ("anonimo", "Anónimo", 9, None), ("foto", "Foto", 7, None),
+            ("texto", "Texto", 60, None)], filas
+
+
+def _bloques_informe(t0, t1):
+    """Contenido del informe del periodo en PDF: solo datos agregados, sin datos personales (es público)."""
+    tramos = con.execute("SELECT t.id, t.nombre FROM tramos t JOIN nodos n ON n.id = t.desde ORDER BY n.orden").fetchall()
+    filas_tr, todos = [], []
+    for tr in tramos:
+        vals = [f["v"] for f in con.execute("SELECT v FROM indice_diario WHERE tramo = ? AND t BETWEEN ? AND ?", (tr["id"], t0, t1))]
+        todos += vals
+        filas_tr.append([tr["id"], tr["nombre"], f"{sum(vals) / len(vals):.0f}" if vals else "-", f"{min(vals):.0f}" if vals else "-",
+                         str(sum(1 for v in vals if v < 40)), str(sum(1 for v in vals if 40 <= v < 70)), str(len(vals))])
+    casos = con.execute("SELECT dep, t, cerrado FROM casos WHERE t BETWEEN ? AND ?", (t0, t1)).fetchall()
+    por_dep = {}
+    for c in casos:
+        por_dep.setdefault(c["dep"], []).append(c)
+    filas_dep = []
+    for dep, lista in sorted(por_dep.items()):
+        cerrados = [c for c in lista if c["cerrado"]]
+        prom = sum((c["cerrado"] - c["t"]) / D for c in cerrados) / len(cerrados) if cerrados else None
+        filas_dep.append([motor.DEPENDENCIAS.get(dep, dep), str(len(lista)), str(len(cerrados)), str(len(lista) - len(cerrados)),
+                          f"{prom:.1f}" if prom is not None else "-"])
+    reps = con.execute("SELECT cat, estado FROM reportes WHERE t BETWEEN ? AND ?", (t0, t1)).fetchall()
+    por_cat = {}
+    for r in reps:
+        por_cat.setdefault(r["cat"], []).append(r["estado"])
+    filas_cat = [[cat, str(len(e)), str(sum(1 for x in e if x in ("Validado", "Atendido"))), str(sum(1 for x in e if x == "Descartado"))]
+                 for cat, e in sorted(por_cat.items(), key=lambda x: -len(x[1]))]
+    _, est = _tabla_estacion(t0, t1)
+    kg = int(con.execute("SELECT COALESCE(SUM(kg), 0) AS s FROM vaciados WHERE t BETWEEN ? AND ?", (t0, t1)).fetchone()["s"])
+    cerr = [c for c in casos if c["cerrado"]]
+    prom_total = sum((c["cerrado"] - c["t"]) / D for c in cerr) / len(cerr) if cerr else None
+    dias_crit = len({f["t"] for f in con.execute("SELECT t FROM indice_diario WHERE v < 40 AND t BETWEEN ? AND ?", (t0, t1))})
+    rg = riesgo.calcular(con, ahora(), DIAS_SIN_VISITA)
+    bloques = [
+        ("kpis", [("Índice promedio de la cuenca", f"{sum(todos) / len(todos):.0f} / 100" if todos else "Sin datos"),
+                  ("Días con algún tramo crítico", str(dias_crit)), ("Casos nuevos en el periodo", str(len(casos))),
+                  ("Casos cerrados", str(len(cerr))), ("Atención promedio", f"{prom_total:.1f} días" if prom_total is not None else "-"),
+                  ("Reportes ciudadanos", str(len(reps))), ("Agua tratada en EP-1", f"{sum(f['m3'] for f in est):,.0f} m³"),
+                  ("Basura retirada", f"{kg:,} kg"), ("Apto para bañarse", "Ningún tramo")]),
+        ("h", "Calidad del agua por tramo"),
+        ("p", "Índice diario de 0 a 100 con la mediana del día del nodo de abajo de cada tramo: 70 o más es «Bien», "
+              "de 40 a 69 «Atención» y menos de 40 «Crítico»."),
+        ("tabla", ["Tramo", "Recorrido", "Promedio", "Mínimo", "Días críticos", "Días en atención", "Días con datos"], filas_tr,
+         (8, 36, 10, 10, 11, 12, 11)),
+        ("h", "Atención de casos por dependencia"),
+        ("tabla", ["Dependencia", "Casos", "Cerrados", "Abiertos", "Días promedio"], filas_dep or [["Sin casos en el periodo", "", "", "", ""]],
+         (40, 14, 14, 14, 16)),
+        ("h", "Reportes de la ciudadanía"),
+        ("tabla", ["Categoría", "Recibidos", "Validados o atendidos", "Descartados"],
+         filas_cat or [["Sin reportes en el periodo", "", "", ""]], (40, 16, 22, 16)),
+        ("h", "Riesgo para la salud por contacto con el agua (al día de hoy)"),
+        ("tabla", ["Tramo", "Nivel", "Motivo principal"], [[t["tramo"], t["etiqueta"], t["razones"][0]] for t in rg["tramos"]], (10, 18, 72)),
+        ("lista", rg["recomendaciones"][:3]),
+        ("h", "Notas"),
+        ("p", "Fuente: plataforma Vigía Atoyac (nodos de monitoreo del Alto Atoyac, App Ciudadana y estación piloto EP-1). "
+              "Los sensores no miden bacterias ni metales pesados; para eso se requieren análisis de laboratorio."),
+    ]
+    if DEMO:
+        bloques.append(("p", "Prototipo de HackaTec 2026: las lecturas, reportes y casos de este informe son datos de demostración simulados."))
+    return bloques
+
+
+@app.get("/api/informes/{nombre}.{formato}", tags=["informes"])
+async def descargar_informe(nombre: str, formato: str, desde: Optional[str] = None, hasta: Optional[str] = None,
+                            nodo: Optional[str] = None, u: Optional[dict] = Depends(actual)):
+    """Informes para el Ayuntamiento, por periodo (`desde`/`hasta` en AAAA-MM-DD; 30 días si no se indica).
+    Públicos: informe (PDF), indice, lecturas, estacion y basura. Casos y reportes: solo el personal, y cada
+    dependencia ve completos los suyos."""
+    if nombre not in INFORMES or formato not in MEDIOS or (formato == "pdf") != (nombre == "informe"):
+        raise HTTPException(404, "Ese informe no existe.")
+    titulo, solo_personal = INFORMES[nombre]
+    if solo_personal and not _es_personal(u):
+        raise HTTPException(403 if u else 401, "Este informe es solo para el personal de las dependencias.")
+    if nodo and not con.execute("SELECT 1 FROM nodos WHERE id = ?", (nodo,)).fetchone():
+        raise HTTPException(404, "El nodo no existe.")
+    t0, t1, etiqueta, rango = _periodo(desde, hasta)
+    generado = f"{informes.fecha(ahora()):%d/%m/%Y %H:%M} (hora del centro)"
+    if nombre == "informe":
+        contenido = await run_in_threadpool(informes.pdf, "Informe de calidad del agua del Alto Atoyac",
+                                            f"Periodo: {etiqueta} · Generado el {generado}", _bloques_informe(t0, t1),
+                                            "Vigía Atoyac · Informe del periodo")
+    else:
+        cols, filas = {"indice": lambda: _tabla_indice(t0, t1), "lecturas": lambda: _tabla_lecturas(t0, t1, nodo),
+                       "estacion": lambda: _tabla_estacion(t0, t1), "basura": lambda: _tabla_basura(t0, t1, _es_personal(u)),
+                       "casos": lambda: _tabla_casos(u, t0, t1), "reportes": lambda: _tabla_reportes(u, t0, t1)}[nombre]()
+        if formato == "csv":
+            contenido = informes.csv_bytes(cols, filas)
+        else:
+            portada = [(f"Vigía Atoyac · {titulo}", ""), ("Periodo", etiqueta), ("Registros", len(filas)), ("Generado", generado),
+                       ("Fuente", "Plataforma Vigía Atoyac" + (" · datos de demostración simulados" if DEMO else ""))]
+            contenido = await run_in_threadpool(informes.xlsx, [(titulo, cols, filas)], portada)
+    archivo = f"vigia_{nombre}{'_' + nodo if nodo else ''}_{rango}.{formato}"
+    return Response(content=contenido, media_type=MEDIOS[formato], headers={"Content-Disposition": f'attachment; filename="{archivo}"'})
+
+
+# ---------- Red de nodos (Administración): alta, cambios, baja y ajustes ----------
+class NodoNuevo(BaseModel):
+    nombre: str = Field(..., min_length=3, max_length=80)
+    lat: float = Field(..., ge=-90, le=90)
+    lng: float = Field(..., ge=-180, le=180)
+    tec: str = Field("", max_length=80)
+
+
+class NodoCambios(BaseModel):
+    nombre: Optional[str] = Field(None, min_length=3, max_length=80)
+    tec: Optional[str] = Field(None, max_length=80)
+    lat: Optional[float] = Field(None, ge=-90, le=90)
+    lng: Optional[float] = Field(None, ge=-180, le=180)
+
+
+class AjustesRed(BaseModel):
+    radio_km: float = Field(..., ge=0.2, le=20)
+    vel_min: float = Field(..., ge=0.05, le=5)
+    vel_max: float = Field(..., ge=0.1, le=10)
+    dias_sin_visita: int = Field(..., ge=1, le=60)
+
+
+def _red_respuesta() -> dict:
+    return {**red.estado(con), "tramos": [modelos.tramo_api(f) for f in con.execute("SELECT * FROM tramos ORDER BY id")]}
+
+
+async def _red_cambio(cambio, texto: str) -> dict:
+    """Aplica un cambio a la red en una transacción. En la demo vuelve a generar los 90 días simulados (así un nodo
+    nuevo trae datos); con datos reales recalcula el índice. Las pantallas abiertas se actualizan solas."""
+    try:
+        with transaccion(con):
+            resultado = cambio()
+    except red.ErrorRed as e:
+        raise HTTPException(422, str(e))
+    except LookupError:
+        raise HTTPException(404, "Ese nodo no existe.")
+    if DEMO:
+        semilla.demostracion(con)
+    else:
+        with transaccion(con):
+            for f in con.execute("SELECT id FROM nodos").fetchall():
+                motor.recalcular_indice(con, f["id"])
+    await canal.emitir("ajustes", {"kind": "info", "title": "Red de nodos actualizada", "msg": texto})
+    return {"resultado": resultado, **_red_respuesta()}
+
+
+@app.get("/api/red", tags=["red"])
+async def red_ver(u: dict = Depends(con_permiso("config"))):
+    return _red_respuesta()
+
+
+@app.post("/api/red/nodos", tags=["red"], status_code=201)
+async def red_alta(datos: NodoNuevo, u: dict = Depends(con_permiso("config"))):
+    """Da de alta un nodo en el punto del río más cercano a (lat, lng); los tramos se recalculan solos."""
+    return await _red_cambio(lambda: red.alta(con, datos.nombre, datos.lat, datos.lng, datos.tec),
+                             f"Nodo nuevo: {datos.nombre.strip()}. Los tramos se recalcularon.")
+
+
+@app.patch("/api/red/nodos/{nodo_id}", tags=["red"])
+async def red_editar(nodo_id: str, datos: NodoCambios, u: dict = Depends(con_permiso("config"))):
+    if (datos.lat is None) != (datos.lng is None):
+        raise HTTPException(422, "Para mover un nodo manda latitud y longitud.")
+    return await _red_cambio(lambda: red.editar(con, nodo_id, datos.nombre, datos.tec, datos.lat, datos.lng),
+                             f"Se actualizó el nodo {nodo_id}.")
+
+
+@app.post("/api/red/nodos/{nodo_id}/baja", tags=["red"])
+async def red_baja(nodo_id: str, u: dict = Depends(con_permiso("config"))):
+    """Saca el nodo de la red sin borrar sus lecturas; los tramos vecinos se unen."""
+    return await _red_cambio(lambda: red.baja(con, nodo_id), f"El nodo {nodo_id} se dio de baja; sus lecturas se conservan.")
+
+
+@app.post("/api/red/nodos/{nodo_id}/alta", tags=["red"])
+async def red_reactivar(nodo_id: str, u: dict = Depends(con_permiso("config"))):
+    return await _red_cambio(lambda: red.reactivar(con, nodo_id), f"El nodo {nodo_id} volvió a la red.")
+
+
+@app.delete("/api/red/nodos/{nodo_id}", tags=["red"])
+async def red_eliminar(nodo_id: str, u: dict = Depends(con_permiso("config"))):
+    """Borra para siempre un nodo que ya estaba dado de baja, con sus lecturas. La red activa no cambia."""
+    try:
+        with transaccion(con):
+            red.eliminar(con, nodo_id)
+    except LookupError:
+        raise HTTPException(404, "Solo se pueden eliminar nodos que ya estén dados de baja.")
+    await canal.emitir("ajustes", {"kind": "info", "title": "Nodo eliminado", "msg": f"Se borró {nodo_id} con sus lecturas."})
+    return _red_respuesta()
+
+
+@app.put("/api/red/ajustes", tags=["red"])
+async def red_ajustes(datos: AjustesRed, u: dict = Depends(con_permiso("config"))):
+    """Radio para ligar reportes a un nodo, velocidades del agua (tiempo entre nodos) y días para marcar un nodo sin visita."""
+    global DIAS_SIN_VISITA
+    try:
+        a = red.guardar_ajustes(con, datos.radio_km, datos.vel_min, datos.vel_max, datos.dias_sin_visita)
+    except red.ErrorRed as e:
+        raise HTTPException(422, str(e))
+    DIAS_SIN_VISITA = a["dias_sin_visita"]
+    await canal.emitir("ajustes", {"kind": "info", "title": "Ajustes de la red guardados",
+                                   "msg": f"Radio de reportes {a['radio_km']} km · agua de {a['vel_min']} a {a['vel_max']} m/s."})
+    return _red_respuesta()
 
 
 CAPACIDAD_KG = {"B1": 260, "B2": 340, "B3": 210}         # basura que cabe en cada barrera llena

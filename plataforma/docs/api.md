@@ -46,11 +46,26 @@ curl -s -X POST http://localhost:8000/api/reportes -H "Authorization: Bearer <to
 | GET | `/api/series?nodo=N3&dias=7&agrupar=hora` | público | Para gráficas: medianas por hora (`agrupar=hora`) o por día (`agrupar=dia`) de hasta 90 días, contados hacia atrás desde la última lectura. Devuelve `{nodo, paso, hasta, puntos}`; cada punto trae `t`, `n` (lecturas), `anom` (anómalas) y la mediana de cada parámetro, incluidas las columnas de la estación si el nodo la tiene. |
 | GET | `/api/estacion?nodo=N3&dias=7` | público | Estación piloto (hasta 30 días). `kpis`: `caudal` (L/s), `m3Dia` del último día completo (`diaBase`; `null` si no hay día completo y se escala lo que haya), `remocion` y `remocionPeriodo` por parámetro (ponderadas por caudal), `solidosKgDia`, `lodos` (%), `dp` y `dpMax` (kPa), `horasRetrolavado`, `energiaWhDia`, `carbonDias`. Además `mantenimiento` (purgas, retrolavados y cambio de carbón detectados en los datos), `eficienciaColorDiaria` y `serie` por hora. `404` si el nodo no tiene estación. |
 | GET | `/api/abiertos/lecturas.csv?nodo=N3&dias=7` | público | Datos abiertos en CSV (con las columnas de la estación si el nodo la tiene). |
+| GET | `/api/riesgo` | público | Riesgo para la salud por contacto con el agua, por tramo: `nivel` (`alto`, `muy_alto`, `extremo`), `razones`, `lectura`; además `recomendaciones` y `noMide`. Nunca dice que el agua sea apta (`apto: false`). |
+| GET | `/api/informes/{nombre}.{formato}?desde=AAAA-MM-DD&hasta=AAAA-MM-DD` | público / personal | `informe.pdf`; `indice`, `lecturas` (`&nodo=N3` opcional, hasta 92 días), `estacion` y `basura` en `.xlsx` o `.csv` son públicos. `casos` y `reportes` solo el personal (cada dependencia ve completos los suyos). Sin fechas: los últimos 30 días. |
 | GET | `/api/casos`, `/api/casos/{id}` | todos | Cada dependencia ve completos los suyos; el resto, versión pública. |
 | PATCH | `/api/casos/{id}` | permiso `casos` + dependencia dueña | `{accion: atender \| inspeccion \| lab \| cerrar, lab}` |
 | PATCH | `/api/reportes/{folio}` | permiso `validar` | `{estado}`: Validado, Descartado… |
 | PATCH | `/api/barreras/{id}` | permiso `barreras` | `{fill, nivel, vaciada}` registrado en la visita. |
 | PUT | `/api/ajustes/umbrales` | permiso `config` | Umbrales del semáforo. |
+
+## Red de nodos (permiso `config`, solo Administración)
+| Método | Ruta | Para qué |
+|---|---|---|
+| GET | `/api/red` | Nodos activos con su km sobre el río, nodos dados de baja, el trazo del cauce, los tramos y los ajustes. |
+| POST | `/api/red/nodos` | `{nombre, lat, lng, tec}`: alta en el punto del río más cercano (a menos de 1.5 km del cauce y a 300 m o más de otro nodo; si no, `422`). |
+| PATCH | `/api/red/nodos/{id}` | `{nombre?, tec?, lat?, lng?}`: renombrar, cambiar el Tecnológico o mover (latitud y longitud juntas). |
+| POST | `/api/red/nodos/{id}/baja`, `/api/red/nodos/{id}/alta` | Dar de baja (sus lecturas se conservan; quedan al menos dos nodos) o reactivar. |
+| DELETE | `/api/red/nodos/{id}` | Eliminar para siempre un nodo ya dado de baja, con sus lecturas. |
+| PUT | `/api/red/ajustes` | `{radio_km, vel_min, vel_max, dias_sin_visita}`: radio para ligar reportes, velocidades del agua y días sin visita. |
+
+Cada cambio de nodos recalcula los tramos T1…Tn (en modo demo, también vuelve a generar los 90 días simulados) y
+avisa por el WebSocket para que las pantallas abiertas se actualicen.
 
 ## Recolección (nodos sin internet)
 | Método | Ruta | Quién | Para qué |

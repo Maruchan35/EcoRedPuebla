@@ -95,7 +95,7 @@ def main():
     admin = Cliente()
     c, _ = admin.entrar(*cuentas["admin"])
     comprobar("Administración inicia sesión", c == 200, c)
-    admin.pedir("POST", "/api/demo/reiniciar", {})
+    comprobar("la demo se reinicia", admin.pedir("POST", "/api/demo/reiniciar", {})[0] == 200)
 
     print("\nPúblico (sin sesión)")
     pub = Cliente()
@@ -298,7 +298,7 @@ def main():
     comprobar("umbrales incoherentes se rechazan", c == 422, um)
 
     print("\nSimulaciones de la demo y cierre de sesión")
-    admin.pedir("POST", "/api/demo/reiniciar", {})
+    comprobar("la demo se reinicia", admin.pedir("POST", "/api/demo/reiniciar", {})[0] == 200)
     c, r = admin.pedir("POST", "/api/demo/reporte", {})
     c, v = admin.pedir("POST", "/api/demo/visita", {"nodo": "N3", "evento": "descarga"})
     comprobar("visita simulada a N3 con descarga crea el caso", c == 200 and v["eventos"] == 1 and len(v["casos"]) == 1 and v["integridad"] == "verificada", v)
@@ -312,6 +312,42 @@ def main():
     comprobar("repetir la visita enseguida avisa que no hay datos nuevos", admin.pedir("POST", "/api/demo/visita", {"nodo": "N3", "evento": "descarga"})[0] == 409)
     comprobar("las simulaciones son solo de Administración", pc.pedir("POST", "/api/demo/reporte", {})[0] == 403)
     comprobar("cerrar sesión", pc.pedir("POST", "/api/auth/salir", {})[0] == 200 and pc.pedir("GET", "/api/auth/yo")[1]["usuario"] is None)
+
+    print("\nRiesgo del agua e informes")
+    c, rg = pub.pedir("GET", "/api/riesgo")
+    comprobar("el riesgo del agua es público y nunca dice que sea apta para bañarse",
+              c == 200 and rg["apto"] is False and rg["tramos"] and all(not t["apto"] and t["razones"] for t in rg["tramos"]), c)
+    c, pdf, _ = pub.pedir("GET", "/api/informes/informe.pdf", crudo=True)
+    comprobar("informe del periodo en PDF, público", c == 200 and pdf[:5] == b"%PDF-", c)
+    c, xlsx, _ = pub.pedir("GET", "/api/informes/estacion.xlsx", crudo=True)
+    comprobar("resumen diario de la estación en Excel", c == 200 and xlsx[:2] == b"PK", c)
+    comprobar("los casos en Excel piden sesión", pub.pedir("GET", "/api/informes/casos.xlsx", crudo=True)[0] == 401)
+    c, csv_casos, _ = admin.pedir("GET", "/api/informes/casos.csv", crudo=True)
+    comprobar("Administración descarga los casos en CSV", c == 200 and csv_casos.decode("utf-8-sig").startswith("Folio,"), c)
+
+    print("\nRed de nodos")
+    comprobar("Autoridad ambiental no administra la red", amb.pedir("GET", "/api/red")[0] == 403)
+    c, r0 = admin.pedir("GET", "/api/red")
+    comprobar("Administración ve la red y sus tramos", c == 200 and len(r0["nodos"]) >= 2 and len(r0["tramos"]) == len(r0["nodos"]) - 1, c)
+    medio = r0["tramos"][len(r0["tramos"]) // 2]["points"][len(r0["tramos"][len(r0["tramos"]) // 2]["points"]) // 2] if c == 200 else [19.1, -98.3]
+    c, r1 = admin.pedir("POST", "/api/red/nodos", {"nombre": "Nodo de prueba · puente", "lat": medio[0] + 0.0004, "lng": medio[1], "tec": "TecNM Puebla"})
+    nuevo = r1.get("resultado") if c == 201 else None
+    comprobar("alta de un nodo sobre el río: su tramo se parte en dos",
+              c == 201 and len(r1["tramos"]) == len(r0["tramos"]) + 1 and any(t["to"] == nuevo for t in r1["tramos"]), r1 if c != 201 else c)
+    comprobar("un punto lejos del río se rechaza",
+              admin.pedir("POST", "/api/red/nodos", {"nombre": "Lejos del río", "lat": 19.40, "lng": -98.05})[0] == 422)
+    if nuevo:
+        _, est = admin.pedir("GET", "/api/estado")
+        comprobar("el nodo nuevo ya trae datos simulados", len(est["history"].get(nuevo, [])) > 0, list(est["history"]))
+        c, r2 = admin.pedir("POST", f"/api/red/nodos/{nuevo}/baja", {})
+        comprobar("al darlo de baja sus dos tramos vuelven a ser uno",
+                  c == 200 and len(r2["tramos"]) == len(r0["tramos"]) and any(n["id"] == nuevo for n in r2["baja"]), c)
+        comprobar("un nodo dado de baja se puede eliminar", admin.pedir("DELETE", f"/api/red/nodos/{nuevo}")[0] == 200)
+    c, aj = admin.pedir("PUT", "/api/red/ajustes", {"radio_km": 3.0, "vel_min": 0.25, "vel_max": 2.2, "dias_sin_visita": 8})
+    comprobar("los ajustes de la red se guardan", c == 200 and aj["ajustes"]["radio_km"] == 3.0, c)
+    comprobar("velocidades al revés se rechazan",
+              admin.pedir("PUT", "/api/red/ajustes", {"radio_km": 2.5, "vel_min": 2.0, "vel_max": 1.0, "dias_sin_visita": 7})[0] == 422)
+    admin.pedir("PUT", "/api/red/ajustes", r0["ajustes"])                    # deja los ajustes como estaban
 
     print("\nTúnel de Cloudflare")
     # cloudflared se conecta desde la misma máquina: la dirección real del visitante llega en CF-Connecting-IP
@@ -328,7 +364,7 @@ def main():
     comprobar("al quinto fallo se bloquea un minuto", codigos[:5] == [401] * 5 and codigos[5] == 429, codigos)
     comprobar("durante el bloqueo ni la contraseña correcta entra", Cliente().entrar(cuenta_b, "clave-buena-123")[0] == 429)
 
-    admin.pedir("POST", "/api/demo/reiniciar", {})
+    comprobar("la demo se reinicia", admin.pedir("POST", "/api/demo/reiniciar", {})[0] == 200)
     print(f"\n{ok} comprobaciones correctas, {fallos} con falla.")
     sys.exit(1 if fallos else 0)
 

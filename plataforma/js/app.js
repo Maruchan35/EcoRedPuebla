@@ -19,7 +19,8 @@
   let caseSeq = 20, sampleSeq = 20;
 
   // Vistas que esta persona puede abrir: las públicas y las de sus permisos
-  const navOf = () => C.navOrder.filter(k => (!C.nav[k].permiso || VA.can(C.nav[k].permiso)) && (!MOCK || !C.serverOnly.includes(k)));
+  const navOf = () => C.navOrder.filter(k => (!C.nav[k].permiso || VA.can(C.nav[k].permiso))
+    && (!C.nav[k].personal || C.roles[VA.state.role].staff) && (!MOCK || !C.serverOnly.includes(k)));
 
   // Rol y permisos de quien mira: con servidor salen de su sesión (y pueden cambiar si Administración
   // los ajusta); en la demo sin servidor, del selector "Ver como". Devuelve true si algo cambió.
@@ -39,11 +40,18 @@
   function renderNav() {
     const r = C.roles[VA.state.role];
     const pending = VA.can("casos") ? S().cases.filter(c => r.deps.includes(c.dep) && c.status === "Nuevo").length : 0;
-    document.getElementById("nav").innerHTML = navOf().map(k => {
+    const permitidas = new Set(navOf());
+    const item = k => {
       const n = C.nav[k];
       const b = k === "casos" && pending ? `<span class="nav-badge" aria-label="${pending} casos nuevos">${pending}</span>` : "";
       return `<li><a href="#/${k}" data-route="${k}">${icon(n.icon)}<span>${esc(n.label)}</span>${b}</a></li>`;
-    }).join("");
+    };
+    const grupos = C.navGroups.map(g => ({ label: g.label, items: g.items.filter(k => permitidas.has(k)) })).filter(g => g.items.length);
+    // Quien no es personal de una dependencia llega a reportar: el acceso a la app ciudadana va primero
+    const app = r.staff ? "" : `<li class="nav-cta"><a href="${C.appCiudadana}">${icon("smartphone")}<span>Reportar un problema</span></a></li>`;
+    document.getElementById("nav").innerHTML = app + grupos.map((g, i) => `<li class="nav-group">
+        <span class="nav-section" id="navg${i}">${esc(g.label)}</span>
+        <ul aria-labelledby="navg${i}">${g.items.map(item).join("")}</ul></li>`).join("");
     markActive();
     refreshIcons();
   }
@@ -265,7 +273,8 @@
     }
     if (!u) {
       // En pantallas angostas solo queda el icono: el nombre accesible va en aria-label
-      el.innerHTML = `<a class="btn btn-primary" href="login.html" aria-label="Iniciar sesión" title="Iniciar sesión">${icon("log-in")}<span>Iniciar sesión</span></a>`;
+      el.innerHTML = `<a class="btn btn-secondary" href="${C.appCiudadana}" aria-label="Reportar un problema en la App Ciudadana" title="Reportar un problema">${icon("smartphone")}<span>Reportar</span></a>
+        <a class="btn btn-primary" href="login.html" aria-label="Iniciar sesión" title="Iniciar sesión">${icon("log-in")}<span>Iniciar sesión</span></a>`;
       return;
     }
     el.innerHTML = `<div class="user-menu">

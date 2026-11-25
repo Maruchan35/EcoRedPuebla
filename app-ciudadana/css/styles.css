@@ -690,7 +690,7 @@ img { max-width: 100%; display: block; }
   background: var(--color-card);
   border-top: 1px solid var(--color-border);
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   padding: 4px 8px calc(4px + env(safe-area-inset-bottom, 0px));
   min-height: var(--bottom-nav-h);
 }
@@ -711,6 +711,30 @@ img { max-width: 100%; display: block; }
   position: relative;
 }
 .bottom-nav button i { width: 20px; height: 20px; }
+.view-section h1:focus { outline: none; }
+
+/* ---------- El río: riesgo por contacto con el agua ---------- */
+.rio-hero { display: grid; gap: 6px; padding: 14px 16px; border-radius: var(--radius); background: #9A3412; color: #fff; margin-bottom: 12px; }
+.rio-hero.muy_alto { background: #B91C1C; }
+.rio-hero.extremo { background: #7F1D1D; }
+.rio-hero strong { font-size: 1.05rem; }
+.rio-hero span { color: #FEE2E2; font-size: 0.9rem; }
+.rio-tramos { display: grid; gap: 10px; margin-bottom: 12px; }
+.rio-card { background: var(--color-card); border: 1px solid var(--color-border); border-left: 5px solid #EA580C;
+  border-radius: var(--radius); padding: 12px 14px; display: grid; gap: 6px; }
+.rio-card.muy_alto { border-left-color: #DC2626; }
+.rio-card.extremo { border-left-color: #7F1D1D; }
+.rio-nivel { font-weight: 700; font-size: 0.85rem; color: #9A3412; display: inline-flex; gap: 6px; align-items: center; }
+.rio-card.muy_alto .rio-nivel { color: #B91C1C; }
+.rio-card.extremo .rio-nivel { color: #7F1D1D; }
+.rio-nivel svg { width: 16px; height: 16px; }
+.rio-card h3 { margin: 0; font-size: 1rem; }
+.rio-card p { margin: 0; }
+.rio-card ul, .rio-info ul { margin: 0; padding-left: 1.1em; display: grid; gap: 4px; font-size: 0.9rem; }
+.rio-info { background: var(--color-card); border: 1px solid var(--color-border); border-radius: var(--radius);
+  padding: 14px 16px; display: grid; gap: 8px; }
+.rio-info h2 { font-size: 1rem; margin: 6px 0 0; }
+@media (min-width: 680px) { .rio-tramos { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .bottom-nav button.is-active {
   color: var(--color-accent);
   background: var(--color-accent-soft);

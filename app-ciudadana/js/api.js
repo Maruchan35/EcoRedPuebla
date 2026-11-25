@@ -173,6 +173,11 @@ export async function obtenerMisReportes() {
   return pedirJson("/api/reportes?mios=true");
 }
 
+// Riesgo para la salud por contacto con el agua, por tramo (público)
+export async function obtenerRiesgo() {
+  return pedirJson("/api/riesgo");
+}
+
 export async function verReportePorFolio(folio) {
   return pedirJson(`/api/reportes/${encodeURIComponent(folio.trim().toUpperCase())}`);
 }

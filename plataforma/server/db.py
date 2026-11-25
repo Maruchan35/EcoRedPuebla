@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS nodos (
   base TEXT NOT NULL,                          -- valores normales del sitio (JSON)
   ultima_descarga INTEGER                      -- última visita de Protección Civil
 );
+CREATE TABLE IF NOT EXISTS nodos_baja AS SELECT * FROM nodos WHERE 0;   -- dados de baja por Administración (sus lecturas siguen)
 CREATE TABLE IF NOT EXISTS tramos (
   id TEXT PRIMARY KEY, desde TEXT NOT NULL, hasta TEXT NOT NULL, nombre TEXT NOT NULL, puntos TEXT NOT NULL
 );

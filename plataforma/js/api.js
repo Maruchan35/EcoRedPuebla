@@ -59,6 +59,8 @@
     ["nodes", "tramos", "barriers", "reports", "cases"].forEach(k => mergeById(s[k], d[k]));
     s.history = d.history; s.dailyIndex = d.dailyIndex; s.categorias = d.categorias;
     s.basura = d.basura || null; s.estaciones = d.estaciones || [];
+    // Ajustes de la red que decide Administración: tiempo del agua entre nodos y radio de reportes cercanos
+    if (d.red) { C.rio.velMin = d.red.velMin; C.rio.velMax = d.red.velMax; C.fusionRadiusKm = d.red.radioKm; }
     Object.entries(d.params || {}).forEach(([k, v]) => { if (C.params[k]) Object.assign(C.params[k], v); });
     if (d.staleDays) C.staleDays = d.staleDays;
     // La sesión se cerró del lado del servidor (cuenta desactivada, contraseña cambiada en otro equipo, expiró)
@@ -140,6 +142,19 @@
     : http("GET", `/api/series?nodo=${encodeURIComponent(nodo)}&dias=${dias}&agrupar=${agrupar}`);
   const estacion = (nodo = "N3", dias = 7) => USE_MOCK ? Promise.resolve(null)
     : http("GET", `/api/estacion?nodo=${encodeURIComponent(nodo)}&dias=${dias}`);
+  // Riesgo para la salud por contacto con el agua, por tramo (público)
+  const riesgo = () => USE_MOCK ? Promise.resolve(null) : http("GET", "/api/riesgo");
+  // Red de nodos (Administración): cada cambio devuelve la red ya recalculada
+  const nodoUrl = id => `/api/red/nodos/${encodeURIComponent(id)}`;
+  const red = {
+    ver: () => http("GET", "/api/red"),
+    alta: datos => http("POST", "/api/red/nodos", datos),
+    editar: (id, datos) => http("PATCH", nodoUrl(id), datos),
+    baja: id => http("POST", nodoUrl(id) + "/baja", {}),
+    reactivar: id => http("POST", nodoUrl(id) + "/alta", {}),
+    eliminar: id => http("DELETE", nodoUrl(id)),
+    ajustes: datos => http("PUT", "/api/red/ajustes", datos)
+  };
 
   const batches = {
     list: () => http("GET", "/api/lotes"),
@@ -256,5 +271,5 @@
   };
 
   VA.api = { USE_MOCK, http, loadAll, refresh, logout, changePassword, caseAction, saveCase, reportStatus, photoUrl,
-    saveThresholds, users, batches, series, estacion, connect, setPaused, online, simulate, demo };
+    saveThresholds, users, batches, series, estacion, riesgo, red, connect, setPaused, online, simulate, demo };
 })();

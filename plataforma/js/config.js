@@ -70,21 +70,34 @@ VA.config = {
   permisoLabels: { casos: "Casos", reportes: "Reportes de la app", validar: "Validar reportes", nodos: "Nodos", recoleccion: "Recolección",
     barreras: "Barreras", prediccion: "Predicción", usuarios: "Usuarios", config: "Configuración" },
   // Vistas que necesitan el servidor (no aparecen al abrir index.html con doble clic)
-  serverOnly: ["recoleccion", "usuarios", "estacion"],
+  serverOnly: ["recoleccion", "usuarios", "estacion", "riesgo", "informes", "red"],
 
-  // Orden del menú. `permiso`: el que pide cada vista; sin él, la vista es pública.
-  navOrder: ["resumen", "mapa", "estacion", "casos", "nodos", "reportes", "recoleccion", "prediccion", "transparencia", "usuarios", "config"],
+  // Menú lateral por grupos, en este orden. Cada vista pide `permiso` (sin él es pública) o `personal`
+  // (cualquier cuenta de una dependencia). Un grupo sin vistas permitidas no aparece.
+  navGroups: [
+    { label: "Monitoreo del río", items: ["resumen", "mapa", "riesgo", "estacion", "nodos", "prediccion"] },
+    { label: "Atención",          items: ["casos", "reportes", "recoleccion"] },
+    { label: "Datos abiertos",    items: ["transparencia", "informes"] },
+    { label: "Administración",    items: ["red", "usuarios", "config"] }
+  ],
   nav: {
-    resumen:       { label: "Resumen",            icon: "layout-dashboard" },
-    mapa:          { label: "Mapa",               icon: "map" },
-    estacion:      { label: "Estación piloto",    icon: "factory" },
-    casos:         { label: "Casos",              icon: "folder-open",         permiso: "casos" },
-    nodos:         { label: "Nodos",              icon: "activity",            permiso: "nodos" },
-    reportes:      { label: "Reportes de la app", icon: "smartphone",          permiso: "reportes" },
-    recoleccion:   { label: "Recolección",        icon: "hard-drive-download", permiso: "recoleccion" },
-    prediccion:    { label: "Predicción",         icon: "trending-up",         permiso: "prediccion" },
-    transparencia: { label: "Transparencia",      icon: "scale" },
-    usuarios:      { label: "Usuarios",           icon: "users",               permiso: "usuarios" },
-    config:        { label: "Configuración y demo", icon: "sliders-horizontal", permiso: "config" }
-  }
+    resumen:       { label: "Resumen",              icon: "layout-dashboard" },
+    mapa:          { label: "Mapa",                 icon: "map" },
+    riesgo:        { label: "Riesgo del agua",      icon: "heart-pulse" },
+    estacion:      { label: "Estación piloto",      icon: "factory" },
+    casos:         { label: "Casos",                icon: "folder-open",         permiso: "casos" },
+    nodos:         { label: "Nodos",                icon: "activity",            permiso: "nodos" },
+    reportes:      { label: "Reportes de la app",   icon: "smartphone",          permiso: "reportes" },
+    recoleccion:   { label: "Recolección",          icon: "hard-drive-download", permiso: "recoleccion" },
+    prediccion:    { label: "Predicción",           icon: "trending-up",         permiso: "prediccion" },
+    transparencia: { label: "Transparencia",        icon: "scale" },
+    informes:      { label: "Informes y descargas", icon: "file-down" },
+    red:           { label: "Red de nodos",         icon: "network",             permiso: "config" },
+    usuarios:      { label: "Usuarios",             icon: "users",               permiso: "usuarios" },
+    config:        { label: "Configuración y demo", icon: "sliders-horizontal",  permiso: "config" }
+  },
+  // App ciudadana: con servidor vive en /app/; sin servidor, en la carpeta vecina
+  appCiudadana: location.protocol === "file:" ? "../app-ciudadana/index.html" : "/app/"
 };
+// Orden plano de las vistas (rutas y permisos), sacado de los grupos del menú
+VA.config.navOrder = VA.config.navGroups.flatMap(g => g.items);
