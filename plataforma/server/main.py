@@ -1400,7 +1400,7 @@ async def metricas():
     cerrados = con.execute("SELECT t, cerrado, dep FROM casos WHERE cerrado IS NOT NULL").fetchall()
     dias = [(c["cerrado"] - c["t"]) / D for c in cerrados]
     return {
-        "ahora": t, "nodos": nodos_info, "tramos": semaforo, "tramos_detalle": por_tramo,
+        "ahora": t, "demo": DEMO, "nodos": nodos_info, "tramos": semaforo, "tramos_detalle": por_tramo,
         "casos": {
             "abiertos": con.execute("SELECT COUNT(*) AS c FROM casos WHERE estado <> 'Cerrado'").fetchone()["c"],
             "cerrados": len(cerrados),
@@ -1506,11 +1506,18 @@ async def demo_reiniciar(u: dict = Depends(con_permiso("config"))):
 @app.get("/index.html", include_in_schema=False)
 async def pagina_principal(request: Request):
     """La plataforma (sensores, casos, reportes, configuración) es de Administración. Quien llega sin esa sesión
-    va directo a reportar en la app ciudadana; Administración entra por /login.html."""
+    ve la portada pública (qué es EcoRed Puebla, cómo funciona y el botón de reportar, que abre la app ciudadana);
+    Administración entra por /login.html."""
     fila = seguridad.usuario_de_token(con, request.cookies.get(seguridad.COOKIE, ""))
     if not fila or fila["rol"] not in seguridad.PERSONAL:
-        return RedirectResponse(url="/app/", status_code=302)
+        return FileResponse(WEB / "inicio.html")
     return FileResponse(WEB / "index.html")
+
+
+@app.get("/inicio", include_in_schema=False)
+async def pagina_portada():
+    """La portada pública, también para quien tiene sesión de Administración (a ellos «/» les abre la plataforma)."""
+    return FileResponse(WEB / "inicio.html")
 
 
 @app.get("/mapa", include_in_schema=False)

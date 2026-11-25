@@ -986,6 +986,14 @@ async function iniciar() {
     await cargarNotificaciones(false);
   });
   $("#btnSyncCola")?.addEventListener("click", () => intentarSincronizar(false));
+  // El logo lleva a la portada del sitio; en la app instalada o sin señal la portada no está, así que se queda en Reportar
+  $(".brand")?.addEventListener("click", (ev) => {
+    const instalada = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+    if (instalada || !navigator.onLine) {
+      ev.preventDefault();
+      window.location.hash = "#/reportar";
+    }
+  });
   $("#btnQueSomos")?.addEventListener("click", abrirQueSomos);
   $("#btnCerrarQueSomos")?.addEventListener("click", cerrarQueSomos);
   $("#modalQueSomos")?.addEventListener("click", (ev) => {

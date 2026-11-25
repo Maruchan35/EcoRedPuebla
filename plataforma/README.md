@@ -1,7 +1,8 @@
 # Vigía Atoyac · Plataforma web
 
-Plataforma central de Vigía Atoyac (HackaTec 2026, reto SECIHTI Puebla): la dirección principal lleva directo a
-reportar (App Ciudadana) y la plataforma es de Administración: centro de monitoreo de la cuenca, reportes de la
+Plataforma central de Vigía Atoyac (HackaTec 2026, reto SECIHTI Puebla): la dirección principal abre la portada
+pública (`inicio.html`: qué es, cómo funciona y el botón «Reportar», que lleva a la App Ciudadana; con sesión de
+Administración se ve en `/inicio`) y la plataforma es de Administración: centro de monitoreo de la cuenca, reportes de la
 app, casos que Administración canaliza a cada dependencia,
 carga por lote de los nodos (que miden sin internet), estación piloto de tratamiento junto al río, pronóstico
 de la calidad por tramo y tablero de transparencia.
@@ -214,7 +215,7 @@ las columnas se dibujan sobre un fondo liso. Si la computadora no tiene WebGL se
 
 ## Pruebas
 Con el servidor encendido, en otra terminal: `python -m server.prueba_rapida`. Recorre inicio de sesión,
-los dos roles, la portada que lleva a reportar, contraseña temporal, bitácora, reporte con foto, carga de CSV con descarga,
+los dos roles, la portada pública con su botón de reportar, contraseña temporal, bitácora, reporte con foto, carga de CSV con descarga,
 huella alterada, casos, usuarios, límite de intentos, estación piloto, series e índice diario, riesgo del agua,
 informes y red de nodos (da de alta un nodo de prueba y lo elimina), y al final deja los datos de la demo en su punto de
 partida (las cuentas de prueba que crea se quedan). Sirve para la sección de pruebas del documento.

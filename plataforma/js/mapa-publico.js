@@ -6,6 +6,8 @@
    de un reporte: cada toque se manda a la app con postMessage
    ({tipo:"va-punto", lat, lng, exacto}) y la app puede mover el
    pin con {tipo:"va-ir", lat, lng}.
+
+   Con ?previa=1 se oculta la leyenda: así lo muestra la portada.
    ========================================================= */
 (function () {
   const el = document.getElementById("mapa3d");
@@ -14,6 +16,7 @@
   const ZOOM_EXACTO = 17;                    // en 3D, a este acercamiento el toque cae a pocos metros del punto
   let m = null, pin = null;
 
+  if (q.has("previa")) document.body.classList.add("mapa-previa");   // vista previa de la portada: solo el mapa
   if (elegir) document.body.classList.add("mapa-elegir");
   else if (VA.map.is3d) {
     document.getElementById("leyenda").insertAdjacentHTML("beforeend",

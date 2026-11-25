@@ -125,7 +125,12 @@ def main():
     c, m = pub.pedir("GET", "/api/metricas")
     comprobar("métricas públicas", c == 200 and m["nodos"]["total"] == 6 and m["reportes"]["total"] >= 36, m if c == 200 else c)
     c, portada, _ = pub.pedir("GET", "/", crudo=True)
-    comprobar("la portada sin sesión lleva directo a reportar", c == 200 and b'data-view="reportar"' in portada, c)
+    comprobar("la portada sin sesión es el lobby con su botón de reportar", c == 200 and b'data-pagina="portada"' in portada
+              and b'href="app/#/reportar"' in portada, c)
+    c, portada, _ = admin.pedir("GET", "/inicio", crudo=True)
+    comprobar("Administración también puede ver el lobby en /inicio", c == 200 and b'data-pagina="portada"' in portada, c)
+    comprobar("los archivos del lobby se sirven", all(pub.pedir("GET", ruta, crudo=True)[0] == 200
+              for ruta in ("/css/portada.css", "/js/portada.js", "/icons/logo-emblema.png")))
     c, panel, _ = admin.pedir("GET", "/", crudo=True)
     comprobar("con sesión de Administración la portada es la plataforma", c == 200 and b'id="nav"' in panel, c)
     c, mapa, cab = pub.pedir("GET", "/mapa", crudo=True)
@@ -158,7 +163,7 @@ def main():
               c == 200 and all("summary" not in k for k in e["cases"]) and all(len(v) == 1 for v in e["history"].values()), c)
     comprobar("no puede cambiar umbrales", ciu.pedir("PUT", "/api/ajustes/umbrales", {"params": {}})[0] == 403)
     c, portada, _ = ciu.pedir("GET", "/", crudo=True)
-    comprobar("con sesión ciudadana la portada también lleva a reportar", c == 200 and b'data-view="reportar"' in portada, c)
+    comprobar("con sesión ciudadana la portada también es el lobby", c == 200 and b'data-pagina="portada"' in portada, c)
 
     print("\nApp ciudadana: registro, reporte con foto y seguimiento")
     app = Cliente(cabecera=False)

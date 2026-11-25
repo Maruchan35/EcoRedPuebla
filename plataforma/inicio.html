@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="es-MX">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#FFFFFF">
+  <title>EcoRed Puebla · Reporta lo que veas en el río Atoyac</title>
+  <meta name="description" content="EcoRed Puebla une los reportes de la gente con sensores en el Alto Atoyac para que cada descarga, tiradero o mancha en el agua llegue a la autoridad que debe atenderla.">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="es_MX">
+  <meta property="og:title" content="EcoRed Puebla · Si lo ves en el río, repórtalo">
+  <meta property="og:description" content="Reporta con una foto lo que veas en el río Atoyac y sus barrancas. Sin cuenta y, si quieres, de forma anónima.">
+  <meta property="og:image" content="https://ecoredpuebla.com.mx/app/icons/logo-maskable-512.png">
+  <link rel="icon" href="icons/favicon.png" type="image/png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="css/portada.css">
+</head>
+<body data-pagina="portada">
+  <a class="skip-link" href="#contenido">Saltar al contenido</a>
+
+  <!-- ===== Barra superior: marca, secciones y el botón de reportar siempre a la mano ===== -->
+  <header class="pt-nav">
+    <div class="wrap pt-nav-inner">
+      <a class="pt-brand" href="#inicio" aria-label="EcoRed Puebla, inicio">
+        <img src="icons/logo-96.png" alt="" width="40" height="40">
+        <span>EcoRed Puebla</span>
+      </a>
+      <nav class="pt-links" aria-label="Secciones de la página">
+        <a href="#como-funciona">Cómo funciona</a>
+        <a href="#que-reportar">Qué reportar</a>
+        <a href="#rio">El río hoy</a>
+        <a href="#quienes">Quiénes somos</a>
+        <a href="app/#/seguimiento">Mis reportes</a>
+      </nav>
+      <a class="btn btn-primary pt-cta" href="app/#/reportar"><i data-lucide="camera" aria-hidden="true"></i>Reportar</a>
+    </div>
+  </header>
+
+  <main id="contenido">
+    <!-- ===== Portada ===== -->
+    <section class="hero" id="inicio" aria-labelledby="tituloPortada">
+      <div class="wrap hero-inner">
+        <div class="hero-texto">
+          <p class="eyebrow"><i data-lucide="map-pin" aria-hidden="true"></i>Alto Atoyac · Puebla</p>
+          <h1 id="tituloPortada">Si lo ves en el río, <em>repórtalo</em>.</h1>
+          <p class="hero-lead">EcoRed Puebla une los reportes de la gente con sensores en el Alto Atoyac para que cada descarga, tiradero o mancha en el agua llegue a la autoridad que debe atenderla.</p>
+          <div class="hero-cta">
+            <a class="btn btn-primary btn-lg" href="app/#/reportar"><i data-lucide="camera" aria-hidden="true"></i>Reportar un problema</a>
+            <a class="btn btn-ghost btn-lg" href="app/#/mapa"><i data-lucide="map" aria-hidden="true"></i>Ver el mapa</a>
+          </div>
+          <ul class="hero-trust">
+            <li><i data-lucide="check" aria-hidden="true"></i>No necesitas cuenta</li>
+            <li><i data-lucide="check" aria-hidden="true"></i>Puede ser anónimo</li>
+            <li><i data-lucide="check" aria-hidden="true"></i>Se guarda aunque no tengas señal</li>
+          </ul>
+          <p class="hero-folio">¿Ya hiciste un reporte? <a href="app/#/seguimiento">Sigue tu folio</a></p>
+        </div>
+
+        <div class="hero-art" aria-hidden="true">
+          <div class="hero-plate"><img src="icons/logo-emblema.png" alt="" width="560" height="560"></div>
+          <span class="hero-chip chip-a"><i data-lucide="camera"></i>Foto y ubicación</span>
+          <span class="hero-chip chip-b"><i data-lucide="activity"></i>Sensores en el río</span>
+          <span class="hero-chip chip-c"><i data-lucide="bell"></i>Seguimiento con folio</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== Cifras en vivo (api/metricas) ===== -->
+    <section class="cifras" id="cifras" aria-label="La red en cifras">
+      <div class="wrap">
+        <dl class="cifras-grid">
+          <div class="cifra"><dt>nodos de monitoreo en el río</dt><dd id="cifraNodos">–</dd></div>
+          <div class="cifra"><dt>tramos del Alto Atoyac vigilados</dt><dd id="cifraTramos">–</dd></div>
+          <div class="cifra"><dt>reportes ciudadanos recibidos</dt><dd id="cifraReportes">–</dd></div>
+          <div class="cifra"><dt>casos atendidos y cerrados</dt><dd id="cifraCasos">–</dd></div>
+        </dl>
+        <p class="cifras-nota" id="cifrasNota" hidden>Prototipo: las cifras incluyen datos de demostración.</p>
+      </div>
+    </section>
+
+    <!-- ===== Cómo funciona ===== -->
+    <section class="seccion" id="como-funciona" aria-labelledby="tituloComo">
+      <div class="wrap">
+        <div class="seccion-cab">
+          <p class="kicker">Cómo funciona</p>
+          <h2 id="tituloComo">De tu foto a la autoridad, en tres pasos</h2>
+          <p>No hay que saber de calidad del agua. Con lo que ves y dónde lo ves es suficiente.</p>
+        </div>
+        <ol class="pasos">
+          <li class="paso">
+            <span class="paso-num" aria-hidden="true">1</span>
+            <span class="paso-icono" aria-hidden="true"><i data-lucide="camera"></i></span>
+            <h3>Reportas con una foto</h3>
+            <p>Basura, espuma, agua de color o una descarga: con la foto y el punto exacto basta. No necesitas cuenta.</p>
+          </li>
+          <li class="paso">
+            <span class="paso-num" aria-hidden="true">2</span>
+            <span class="paso-icono" aria-hidden="true"><i data-lucide="activity"></i></span>
+            <h3>Los sensores lo confirman</h3>
+            <p>Nodos a lo largo del Alto Atoyac miden pH, conductividad, turbidez y color. Si tu reporte coincide con un cambio en el agua, el caso gana certeza.</p>
+          </li>
+          <li class="paso">
+            <span class="paso-num" aria-hidden="true">3</span>
+            <span class="paso-icono" aria-hidden="true"><i data-lucide="bell"></i></span>
+            <h3>Se atiende y te avisamos</h3>
+            <p>Administración valida el reporte y lo canaliza a la dependencia que corresponde. Con tu folio sigues el avance.</p>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- ===== Qué reportar ===== -->
+    <section class="seccion seccion-alt" id="que-reportar" aria-labelledby="tituloQue">
+      <div class="wrap">
+        <div class="seccion-cab">
+          <p class="kicker">Qué reportar</p>
+          <h2 id="tituloQue">Lo que veas en el río o en la barranca</h2>
+          <p>Elige lo que más se parezca. Si dudas, la app revisa la foto y te propone la categoría.</p>
+        </div>
+        <ul class="cats">
+          <li class="cat"><i data-lucide="droplets" aria-hidden="true"></i>Agua de color</li>
+          <li class="cat"><i data-lucide="cloud-rain" aria-hidden="true"></i>Espuma</li>
+          <li class="cat"><i data-lucide="pipette" aria-hidden="true"></i>Descarga de tubería</li>
+          <li class="cat"><i data-lucide="trash-2" aria-hidden="true"></i>Basura</li>
+          <li class="cat"><i data-lucide="wind" aria-hidden="true"></i>Mal olor</li>
+          <li class="cat"><i data-lucide="alert-triangle" aria-hidden="true"></i>Animal muerto</li>
+        </ul>
+        <p class="seccion-accion"><a class="btn btn-primary" href="app/#/reportar"><i data-lucide="camera" aria-hidden="true"></i>Hacer un reporte</a></p>
+      </div>
+    </section>
+
+    <!-- ===== El río hoy (api/riesgo) y vista previa del mapa ===== -->
+    <section class="seccion" id="rio" aria-labelledby="tituloRio">
+      <div class="wrap rio-grid">
+        <div>
+          <div class="seccion-cab">
+            <p class="kicker">El río hoy</p>
+            <h2 id="tituloRio">Conoce cómo está el Atoyac antes de acercarte</h2>
+            <p>Los nodos miden pH, conductividad, turbidez, color y nivel a lo largo del río. Con eso se calcula, tramo por tramo, el riesgo por contacto con el agua.</p>
+          </div>
+          <div class="aviso" role="note">
+            <i data-lucide="alert-triangle" aria-hidden="true"></i>
+            <p><strong id="rioMensaje">Evita el contacto con el agua del río.</strong> El Atoyac recibe drenaje y descargas industriales sin tratar.</p>
+          </div>
+          <div class="rio-acciones">
+            <a class="btn btn-ghost" href="app/#/rio"><i data-lucide="heart-pulse" aria-hidden="true"></i>Ver riesgo por tramo</a>
+            <a class="btn btn-ghost" href="app/#/mapa"><i data-lucide="map" aria-hidden="true"></i>Abrir el mapa</a>
+          </div>
+        </div>
+        <div class="mapa-marco" id="mapaMarco">
+          <div class="mapa-lienzo" id="mapaLienzo" inert><span class="mapa-vacio"><i data-lucide="map" aria-hidden="true"></i></span></div>
+          <a class="mapa-enlace" href="app/#/mapa"><span class="btn btn-light"><i data-lucide="maximize-2" aria-hidden="true"></i>Abrir el mapa 3D</span></a>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== Quiénes somos ===== -->
+    <section class="seccion seccion-alt" id="quienes" aria-labelledby="tituloQuienes">
+      <div class="wrap">
+        <div class="seccion-cab">
+          <p class="kicker">Quiénes somos</p>
+          <h2 id="tituloQuienes">Una red para cuidar el Atoyac y sus barrancas</h2>
+          <p>Tú reportas lo que ves, los sensores del río miden el agua y Administración lleva cada caso a la autoridad que debe atenderlo.</p>
+        </div>
+        <ul class="pilares">
+          <li class="pilar">
+            <i data-lucide="radio-tower" aria-hidden="true"></i>
+            <h3>Nodos en el río</h3>
+            <p>Miden y guardan sin internet; sus datos llegan con cada visita de campo.</p>
+          </li>
+          <li class="pilar">
+            <i data-lucide="smartphone" aria-hidden="true"></i>
+            <h3>App ciudadana</h3>
+            <p>Fotos y ubicación de la gente, al momento y sin necesidad de cuenta.</p>
+          </li>
+          <li class="pilar">
+            <i data-lucide="folder-open" aria-hidden="true"></i>
+            <h3>Casos con folio</h3>
+            <p>Administración valida cada evento y lo canaliza a la dependencia que debe atenderlo.</p>
+          </li>
+          <li class="pilar">
+            <i data-lucide="sprout" aria-hidden="true"></i>
+            <h3>Estación piloto</h3>
+            <p>Un tren de tratamiento junto al río, con filtro y humedal. Por ahora es un piloto simulado.</p>
+          </li>
+        </ul>
+        <p class="nota-proto">Prototipo del HackaTec 2026 para el reto SECIHTI Puebla. Los datos de los sensores todavía son simulados; los reportes que envíes sí llegan a la plataforma.</p>
+      </div>
+    </section>
+
+    <!-- ===== Cierre ===== -->
+    <section class="cta-final" aria-labelledby="tituloCierre">
+      <div class="wrap cta-final-inner">
+        <h2 id="tituloCierre">¿Viste algo en el río hoy?</h2>
+        <p>Con una foto y el punto exacto basta. Lo demás corre por nuestra cuenta.</p>
+        <a class="btn btn-light btn-lg" href="app/#/reportar"><i data-lucide="camera" aria-hidden="true"></i>Reportar ahora</a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="pie">
+    <div class="wrap">
+      <div class="pie-grid">
+        <div>
+          <p class="pie-marca"><img src="icons/logo-96.png" alt="" width="40" height="40">EcoRed Puebla</p>
+          <p class="pie-lema">Sensores que vigilan, ciudadanos que reportan, gobierno que actúa.</p>
+        </div>
+        <nav aria-label="La app">
+          <h2>La app</h2>
+          <ul>
+            <li><a href="app/#/reportar">Reportar</a></li>
+            <li><a href="app/#/mapa">Mapa</a></li>
+            <li><a href="app/#/rio">El río hoy</a></li>
+            <li><a href="app/#/seguimiento">Mis reportes</a></li>
+          </ul>
+        </nav>
+        <nav aria-label="Personal">
+          <h2>Personal</h2>
+          <ul>
+            <li><a href="login.html">Acceso para administración</a></li>
+          </ul>
+        </nav>
+      </div>
+      <p class="pie-legal">Prototipo HackaTec 2026 · Reto SECIHTI Puebla</p>
+    </div>
+  </footer>
+
+  <script src="vendor/lucide.min.js"></script>
+  <script src="js/portada.js"></script>
+</body>
+</html>
