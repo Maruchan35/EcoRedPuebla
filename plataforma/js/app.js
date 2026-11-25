@@ -259,7 +259,7 @@
     if (MOCK) {
       // Demo sin servidor: no hay cuentas, el rol se elige aquí
       el.innerHTML = `<div class="role-picker"><label for="roleSelect">Ver como</label><select id="roleSelect">
-        ${["publico", "ambiental", "limpia", "pc", "tec", "admin"].map(k => `<option value="${k}">${esc(C.roles[k].label)}${k === "publico" ? " (público)" : ""}</option>`).join("")}</select></div>`;
+        ${["publico", "admin"].map(k => `<option value="${k}">${esc(C.roles[k].label)}${k === "publico" ? " (público)" : ""}</option>`).join("")}</select></div>`;
       const sel = document.getElementById("roleSelect");
       sel.value = VA.state.role;
       sel.addEventListener("change", () => {
@@ -317,6 +317,8 @@
       VA.state.role = C.roles[saved] ? saved : "admin";
     }
     applySession();
+    // La plataforma es de Administración: sin esa sesión, directo a reportar en la App Ciudadana
+    if (!MOCK && !C.roles[VA.state.role].staff) { location.replace(C.appCiudadana); return; }
     document.getElementById("footMode").textContent = MOCK ? "Demo sin servidor · datos simulados" : VA.session.demo ? "Datos de demostración" : "";
     renderUserArea();
     renderNav();

@@ -53,17 +53,14 @@ VA.config = {
   rio: { velMin: 0.3, velMax: 2.0 },
 
   // ---------- Roles y permisos ----------
-  // Con servidor, los permisos de cada persona llegan con su sesión: el servidor los decide y los hace
-  // cumplir en cada petición, y Administración puede ajustarlos por persona. Estos juegos por rol solo
-  // se usan en la vista pública y en la demo sin servidor. deps = casos de qué dependencias atiende.
+  // Solo hay dos roles: Administración, que entra a esta plataforma y lo ve todo, y ciudadanía, que reporta
+  // desde la app (con cuenta o de forma anónima). Con servidor, los permisos llegan con la sesión y el servidor
+  // los hace cumplir en cada petición; estos juegos solo se usan en la demo sin servidor.
+  // deps = casos de qué dependencias atiende (Administración los canaliza a todas).
   roles: {
-    publico:   { label: "Ciudadanía",          staff: false, deps: [],                      permisos: [] },
-    ciudadano: { label: "Ciudadanía",          staff: false, deps: [],                      permisos: [] },
-    ambiental: { label: "Autoridad ambiental", staff: true,  deps: ["ambiental"],           permisos: ["casos", "reportes", "validar", "nodos", "prediccion"] },
-    limpia:    { label: "Limpia municipal",    staff: true,  deps: ["limpia", "brigadas"],  permisos: ["casos", "reportes", "validar", "barreras"] },
-    pc:        { label: "Protección Civil",    staff: true,  deps: ["pc"],                  permisos: ["casos", "validar", "nodos", "recoleccion", "barreras", "prediccion"] },
-    tec:       { label: "Tecnológicos",        staff: true,  deps: [],                      permisos: ["nodos", "recoleccion"] },
-    admin:     { label: "Administración",      staff: true,  deps: ["ambiental", "limpia", "pc", "brigadas"],
+    publico:   { label: "Ciudadanía",     staff: false, deps: [], permisos: [] },
+    ciudadano: { label: "Ciudadanía",     staff: false, deps: [], permisos: [] },
+    admin:     { label: "Administración", staff: true,  deps: ["ambiental", "limpia", "pc", "brigadas"],
                  permisos: ["casos", "reportes", "validar", "nodos", "recoleccion", "barreras", "prediccion", "usuarios", "config"] }
   },
   // Nombre corto de cada permiso (la descripción larga la manda el servidor)

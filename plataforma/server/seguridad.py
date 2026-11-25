@@ -3,11 +3,11 @@
 - Las contraseñas se guardan con PBKDF2-HMAC-SHA256 y sal aleatoria (biblioteca estándar).
 - La sesión es un token aleatorio; en la base solo se guarda su SHA-256.
 - La web lo recibe en una cookie HttpOnly; la app móvil lo manda como `Authorization: Bearer`.
-- Cada rol trae un juego de permisos por omisión; Administración puede ajustarlo por persona.
+- Hay dos roles: Administración, que entra a la plataforma y lo ve todo, y ciudadanía, que reporta desde la app
+  (también se puede reportar sin cuenta, de forma anónima).
 """
 import hashlib
 import hmac
-import json
 import re
 import secrets
 import time
@@ -18,16 +18,13 @@ COOKIE = "va_sesion"
 ITERACIONES = 600_000
 DURACION_MS = {"web": 12 * 3600 * 1000, "app": 30 * 24 * 3600 * 1000}
 
-# Rol -> etiqueta y dependencias cuyos casos puede ver y actualizar
+# Rol -> etiqueta y dependencias cuyos casos puede ver y actualizar. Ya no hay un rol por dependencia (Autoridad
+# ambiental, Limpia, Protección Civil, Tecnológicos): Administración atiende los casos y los canaliza a cada una.
 ROLES = {
     "ciudadano": {"label": "Ciudadanía", "deps": []},
-    "ambiental": {"label": "Autoridad ambiental", "deps": ["ambiental"]},
-    "limpia": {"label": "Limpia municipal", "deps": ["limpia", "brigadas"]},
-    "pc": {"label": "Protección Civil", "deps": ["pc"]},
-    "tec": {"label": "Tecnológicos", "deps": []},
     "admin": {"label": "Administración", "deps": ["ambiental", "limpia", "pc", "brigadas"]},
 }
-PERSONAL = {"ambiental", "limpia", "pc", "tec", "admin"}      # todo menos ciudadanía
+PERSONAL = {"admin"}                                    # quien entra a la plataforma; la ciudadanía usa la app
 
 # Módulos de la plataforma que se pueden dar o quitar a cada persona
 PERMISOS = {
@@ -45,28 +42,13 @@ PERMISOS = {
 SOLO_ADMIN = {"usuarios", "config"}
 PERMISOS_ROL = {
     "ciudadano": set(),
-    "ambiental": {"casos", "reportes", "validar", "nodos", "prediccion"},
-    "limpia": {"casos", "reportes", "validar", "barreras"},
-    "pc": {"casos", "validar", "nodos", "recoleccion", "barreras", "prediccion"},
-    "tec": {"nodos", "recoleccion"},
     "admin": set(PERMISOS),
 }
 
 
 def permisos_de(u) -> set:
-    """Permisos efectivos: los propios si Administración los ajustó, si no los del rol."""
-    rol = u["rol"]
-    if rol == "admin":
-        return set(PERMISOS)
-    if rol not in PERSONAL:
-        return set()
-    propios = u["permisos"] if "permisos" in u.keys() else None
-    if propios is not None:
-        try:
-            return {p for p in json.loads(propios) if p in PERMISOS and p not in SOLO_ADMIN}
-        except (ValueError, TypeError):
-            pass
-    return set(PERMISOS_ROL.get(rol, ()))
+    """Administración tiene todos los módulos; la ciudadanía, ninguno en la plataforma (reporta desde la app)."""
+    return set(PERMISOS) if u["rol"] == "admin" else set()
 
 
 def limpiar_permisos(lista) -> list:

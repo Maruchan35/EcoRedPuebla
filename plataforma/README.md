@@ -1,7 +1,8 @@
 # Vigía Atoyac · Plataforma web
 
-Plataforma central de Vigía Atoyac (HackaTec 2026, reto SECIHTI Puebla): inicio de sesión por rol,
-centro de monitoreo de la cuenca, reportes de la app ciudadana, casos que se asignan solos a cada dependencia,
+Plataforma central de Vigía Atoyac (HackaTec 2026, reto SECIHTI Puebla): la dirección principal lleva directo a
+reportar (App Ciudadana) y la plataforma es de Administración: centro de monitoreo de la cuenca, reportes de la
+app, casos que Administración canaliza a cada dependencia,
 carga por lote de los nodos (que miden sin internet), estación piloto de tratamiento junto al río, pronóstico
 de la calidad por tramo y tablero de transparencia.
 
@@ -29,8 +30,8 @@ dirección `https://….trycloudflare.com`. No necesita cuenta de Cloudflare.
 
 - El enlace funciona mientras esa ventana y la del servidor sigan abiertas y la laptop tenga internet.
   **Cada vez que se abre `compartir.bat` la dirección cambia.**
-- Cualquiera que tenga el enlace ve la vista pública (resumen, mapa, transparencia) y puede intentar iniciar sesión.
-  Para entrar con una cuenta hay que darle a esa persona su correo y contraseña (las de demostración están en
+- Quien abre el enlace llega directo a reportar (App Ciudadana, con «¿Qué somos?» arriba). La plataforma con los
+  datos se abre solo con una sesión de Administración, en `/login.html` (las cuentas de demostración están en
   `server\datos\cuentas_demo.txt`). Compártanlas solo con quien deba entrar.
 - Por el enlace también se pueden mandar reportes a `/api/reportes`. Para borrar lo que se haya juntado:
   «Reiniciar demo».
@@ -50,34 +51,42 @@ túnel de Cloudflare (descarga `cloudflared` 2026.10.7 y comprueba su huella SHA
   guarden su token en los Secretos de Colab como `CF_TUNNEL_TOKEN`; el cuaderno lo usa si existe.
 - El cuaderno clona la rama `main` (variable `RAMA` de la primera celda); para probar otra rama, cámbienla ahí.
 - Colab está pensado para cómputo interactivo, no para hospedar sitios, y puede cortar la sesión: úsenlo para la
-  presentación y tengan la laptop con `iniciar.bat` + `compartir.bat` como plan B.
+  presentación y tengan un respaldo listo.
+
+## Respaldo en una PC con Windows (si Colab se cae)
+`python respaldo_windows.py` (o doble clic) hace lo mismo que el cuaderno de Colab en cualquier PC con Windows y
+Python 3.9 o más nuevo: baja lo último de GitHub (con git o con el `.zip`), crea el entorno, enciende el servidor,
+descarga `cloudflared` verificando su huella y abre el túnel; al final muestra la dirección y las cuentas. Se queda
+vigilando: si el servidor o el túnel se caen los vuelve a levantar, y mientras corre la PC no se suspende. Se
+instala en `%USERPROFILE%\VigiaAtoyac` (variable `VA_CARPETA`); con `CF_TUNNEL_TOKEN` usa un túnel con nombre
+(en Cloudflare tiene que apuntar a `http://localhost:8000`). Volver a correrlo actualiza el código y conserva la base
+de datos. Ctrl+C apaga todo.
+
+Con el mismo token, enciendan el túnel con nombre en **un solo lugar a la vez** (esta PC o Colab): si corre en los
+dos, Cloudflare reparte las visitas entre dos servidores con bases de datos distintas.
 
 ## Cuentas, inicio de sesión y permisos
-Se entra siempre con **correo (o teléfono) y contraseña**, también en la computadora del servidor. Al primer
-arranque se crea una cuenta de demostración por rol, **cada una con su propia contraseña** aleatoria; quedan
-anotadas en `server/datos/cuentas_demo.txt` y se muestran en la ventana del servidor:
+Hay dos roles. **Administración** entra a la plataforma y lo ve todo: sensores, reportes, casos, usuarios y
+configuración; atiende los casos y los canaliza a la dependencia que corresponde. **Ciudadanía** reporta desde la
+App Ciudadana, con su cuenta o sin cuenta (de forma anónima). Quien abre la dirección principal llega directo a
+reportar; sin sesión de Administración, la plataforma manda ahí mismo.
 
-| Cuenta | Persona | Rol | Módulos que trae su rol |
+Se entra siempre con **correo (o teléfono) y contraseña**, también en la computadora del servidor. Al primer
+arranque se crean dos cuentas de demostración, **cada una con su propia contraseña** aleatoria; quedan anotadas en
+`server/datos/cuentas_demo.txt` y se muestran en la ventana del servidor:
+
+| Cuenta | Persona | Rol | Qué puede hacer |
 |---|---|---|---|
 | `admin@vigia.demo` | Mtra. Daniela Ortega Ruiz | Administración | Todo: casos de todas las dependencias, usuarios, configuración y simulaciones |
-| `mariana.cuautle@vigia.demo` | Biól. Mariana Cuautle Romero | Autoridad ambiental | Casos, reportes de la app (ver y validar), nodos, predicción |
-| `arturo.tepox@vigia.demo` | C. Arturo Tepox Huerta | Limpia municipal | Casos, reportes de la app (ver y validar), barreras |
-| `raul.ixtlapale@vigia.demo` | Cmdte. Raúl Ixtlapale Flores | Protección Civil | Casos, validar reportes, nodos, recolección, barreras, predicción |
-| `diego.tlatelpa@vigia.demo` | Ing. Diego Tlatelpa Morales | Tecnológicos | Nodos y recolección |
-| `lupita.sanchez@vigia.demo` | Guadalupe Sánchez Tecuatl | Ciudadanía | Vista pública (la usa la app) |
+| `lupita.sanchez@vigia.demo` | Guadalupe Sánchez Tecuatl | Ciudadanía | Reportar y seguir sus reportes en la app |
+
+Las cuentas de los roles que había antes (Autoridad ambiental, Limpia municipal, Protección Civil, Tecnológicos) se
+borran solas al arrancar el servidor, con sus sesiones; los reportes y casos se conservan.
 
 **Cuentas nuevas:** con el servidor apagado, `python -m server.renovar_cuentas` deja solo Administración (con su
-contraseña de siempre) y crea de nuevo las demás, cada una con contraseña nueva. Antes de borrar guarda una copia
-de la base en `server/datos/` y al final vuelve a generar los datos de la demo a nombre de las cuentas nuevas. Una
-base creada antes de este cambio conserva sus cuentas anteriores (`pc@vigia.demo`, etc.) hasta que lo corran.
+contraseña de siempre) y crea de nuevo la cuenta ciudadana con contraseña nueva. Antes de borrar guarda una copia
+de la base en `server/datos/` y al final vuelve a generar los datos de la demo.
 
-Resumen, Mapa y Transparencia son públicos: se ven sin iniciar sesión.
-
-- **Permisos por persona.** En **Usuarios**, Administración puede quitar o agregar módulos a cada cuenta
-  (por ejemplo, un inspector de Autoridad ambiental que solo consulta nodos). El rol da el juego inicial;
-  «Usar los del rol» lo restablece. El cambio llega al momento: el menú de esa persona se rehace solo.
-  Usuarios y Configuración van únicamente con el rol Administración. Los casos que ve cada quien siguen
-  siendo los de su dependencia.
 - **Contraseña temporal.** Las cuentas que crea Administración (y las contraseñas que reinicia) son temporales:
   al entrar, la persona tiene que crear la suya antes de ver cualquier dato. El servidor lo exige, no solo la pantalla.
 - **Bitácora de accesos.** Usuarios muestra los últimos inicios de sesión, correctos y fallidos, con la dirección
@@ -85,6 +94,9 @@ Resumen, Mapa y Transparencia son públicos: se ven sin iniciar sesión.
 - **Olvidé mi contraseña:** Administración asigna una temporal desde Usuarios → Contraseña.
 
 ## Guion de la demostración (4 minutos)
+Para abrir: la dirección principal en un celular lleva directo a reportar; «¿Qué somos?» explica el proyecto y
+desde ahí (o en `/login.html`) entra Administración.
+
 1. Entra como **Administración**. *Resumen* es el centro de monitoreo: índice de la cuenca y su tendencia, tramos
    en alerta, casos, reportes, agua tratada y basura retirada; abajo, mapa, perfil del río y 30 días de calidad
    por tramo. En **Simular** pulsa **Reporte desde la app**: aparece al momento en el mapa (los reportes sí tienen
@@ -96,10 +108,10 @@ Resumen, Mapa y Transparencia son públicos: se ven sin iniciar sesión.
    los reportes, toma el folio de la muestra y abre un caso para Autoridad ambiental. El tramo queda «por confirmar».
 4. Pulsa **Visita a N2 (confirma el tramo)**: al llegar los datos del nodo de aguas arriba, el caso confirma
    que la descarga entró entre Huejotzingo y Xoxtla.
-5. Abre otra ventana como **Autoridad ambiental** (o cambia de cuenta): el aviso llegó solo. Abre el caso:
-   lecturas del evento, evidencia, historial, laboratorio, PDF. Atiende y cierra: quien reportó recibe el aviso.
+5. Abre **Casos**: el aviso llegó solo. Abre el caso: lecturas del evento, evidencia, historial, laboratorio,
+   PDF. Atiende y cierra (queda firmado «Autoridad ambiental, vía Administración»): quien reportó recibe el aviso.
 6. **Visita a N5 (trae una crecida)** abre un caso para Protección Civil; **Barrera llena**, uno para Limpia.
-7. Con hardware real: entra como **Protección Civil** → *Recolección* → sube el CSV del nodo.
+7. Con hardware real: *Recolección* → sube el CSV del nodo.
 8. **Reiniciar demo (90 días)** deja todo como al principio para volver a ensayar.
 
 ## Qué es real y qué es de demostración
@@ -153,6 +165,7 @@ generar los datos de demostración al arrancar.
 | `iniciar.bat` | Prepara el entorno e inicia el servidor en Windows |
 | `compartir.bat` | Abre un enlace público temporal con Cloudflare (Quick Tunnel) |
 | `demo_colab.ipynb` | Demo en Google Colab: clona el repositorio, enciende el servidor y abre el túnel de Cloudflare |
+| `respaldo_windows.py` | Lo mismo en una PC con Windows, con vigilancia que vuelve a levantar servidor y túnel |
 | `index.html`, `login.html` | Plataforma y pantalla de inicio de sesión |
 | `css/styles.css` | Sistema de diseño (ver `docs/design-system.md`) |
 | `js/config.js` | Parámetros, dependencias, roles, permisos y menú |
@@ -165,7 +178,7 @@ generar los datos de demostración al arrancar.
 | `js/cauce.js` | Cauce real del Atoyac entre nodos y posición de nodos y barreras (OpenStreetMap) |
 | `js/data.js` | Datos de la demo sin servidor |
 | `server/main.py` | API (FastAPI): sesión, usuarios, reportes, casos, recolección, métricas, WebSocket |
-| `server/seguridad.py` | Contraseñas (PBKDF2), sesiones, roles, permisos por persona, límite de intentos |
+| `server/seguridad.py` | Contraseñas (PBKDF2), sesiones, los dos roles y sus permisos, límite de intentos |
 | `server/motor.py` | Análisis por lote: anomalías (z-score robusto), huella de descarga, localización, fusión, casos, índice diario |
 | `server/simulacion.py` | Modelo de simulación del río y de la estación piloto (datos de demostración, determinista) |
 | `server/red.py` | Red de nodos configurable: alta, cambios y baja sobre el cauce; tramos recalculados; ajustes de la red |
@@ -173,8 +186,8 @@ generar los datos de demostración al arrancar.
 | `server/informes.py` | Formatos de los informes: PDF (fpdf2), Excel (openpyxl) y CSV |
 | `server/lotes.py` | Lectura y validación del CSV de la microSD, huella encadenada, generador de ejemplos |
 | `server/db.py`, `server/modelos.py`, `server/semilla.py` | Esquema SQLite, formato de respuestas, datos iniciales |
-| `server/prueba_rapida.py` | Prueba de punta a punta de la API (120 comprobaciones) |
-| `server/renovar_cuentas.py` | Deja solo Administración y crea de nuevo una cuenta por rol, cada una con su contraseña |
+| `server/prueba_rapida.py` | Prueba de punta a punta de la API (122 comprobaciones) |
+| `server/renovar_cuentas.py` | Deja solo Administración y crea de nuevo la cuenta ciudadana de la demo |
 | `server/prueba_motor.py` | Prueba del motor sin servidor: tiempo de tránsito del agua entre nodos (base temporal) |
 | `docs/api.md`, `docs/formato-lote.md` | Referencia para la app móvil y para el firmware del nodo |
 | `vendor/` | MapLibre GL 4.7.1, Leaflet, leaflet.heat, Chart.js, Lucide y fuentes (copias locales) |
@@ -200,7 +213,7 @@ las columnas se dibujan sobre un fondo liso. Si la computadora no tiene WebGL se
 
 ## Pruebas
 Con el servidor encendido, en otra terminal: `python -m server.prueba_rapida`. Recorre inicio de sesión,
-permisos por rol y por persona, contraseña temporal, bitácora, reporte con foto, carga de CSV con descarga,
+los dos roles, la portada que lleva a reportar, contraseña temporal, bitácora, reporte con foto, carga de CSV con descarga,
 huella alterada, casos, usuarios, límite de intentos, estación piloto, series e índice diario, riesgo del agua,
 informes y red de nodos (da de alta un nodo de prueba y lo elimina), y al final deja los datos de la demo en su punto de
 partida (las cuentas de prueba que crea se quedan). Sirve para la sección de pruebas del documento.

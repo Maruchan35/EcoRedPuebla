@@ -797,6 +797,23 @@ function cerrarModalCuenta() {
   if (modal) modal.hidden = true;
 }
 
+// «¿Qué somos?»: qué es EcoRed, cómo se atiende un reporte y el acceso de Administración
+let focoAntesDeQueSomos = null;
+function abrirQueSomos() {
+  const modal = $("#modalQueSomos");
+  if (!modal) return;
+  focoAntesDeQueSomos = document.activeElement;
+  modal.hidden = false;
+  $("#tituloQueSomos")?.focus();
+}
+
+function cerrarQueSomos() {
+  const modal = $("#modalQueSomos");
+  if (!modal || modal.hidden) return;
+  modal.hidden = true;
+  if (focoAntesDeQueSomos && typeof focoAntesDeQueSomos.focus === "function") focoAntesDeQueSomos.focus();
+}
+
 function inicializarCuenta() {
   let modoRegistro = false;
   const tabEntrar = $("#tabAuthEntrar");
@@ -975,6 +992,15 @@ async function iniciar() {
     await cargarNotificaciones(false);
   });
   $("#btnSyncCola")?.addEventListener("click", () => intentarSincronizar(false));
+  $("#btnQueSomos")?.addEventListener("click", abrirQueSomos);
+  $("#btnCerrarQueSomos")?.addEventListener("click", cerrarQueSomos);
+  $("#modalQueSomos")?.addEventListener("click", (ev) => {
+    if (ev.target === ev.currentTarget) cerrarQueSomos();          // clic fuera del panel
+  });
+  $("#btnQueSomosReportar")?.addEventListener("click", () => {
+    cerrarQueSomos();
+    window.location.hash = "#/reportar";
+  });
 
   document.addEventListener("click", (ev) => {
     const folioBtn = ev.target.closest("[data-ver-folio]");
@@ -998,6 +1024,7 @@ async function iniciar() {
     if (ev.key === "Escape") {
       camCtrl.detener();
       cerrarModalCuenta();
+      cerrarQueSomos();
     }
   });
 

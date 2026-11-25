@@ -39,7 +39,10 @@
           <i data-lucide="refresh-cw" aria-hidden="true"></i>
           <strong id="colaPendientesCount">0</strong>
         </button>
-        <button type="button" id="btnCuenta" class="btn btn-top">
+        <button type="button" id="btnQueSomos" class="btn btn-top btn-about" aria-haspopup="dialog" aria-controls="modalQueSomos">
+          <i data-lucide="info" aria-hidden="true"></i><span>¿Qué somos?</span>
+        </button>
+        <button type="button" id="btnCuenta" class="btn btn-top" title="Cuenta">
           <i data-lucide="user" aria-hidden="true"></i><span>Cuenta</span>
         </button>
       </div>
@@ -208,7 +211,7 @@
           </div>
 
           <a class="btn btn-ghost btn-block" href="../login.html">
-            <i data-lucide="layout-dashboard" aria-hidden="true"></i><span>Abrir plataforma de gobierno</span>
+            <i data-lucide="layout-dashboard" aria-hidden="true"></i><span>Acceso para administración</span>
           </a>
         </aside>
       </div>
@@ -306,6 +309,37 @@
       <button type="button" id="btnCapturarCamara" class="btn btn-primary btn-block">
         <i data-lucide="camera" aria-hidden="true"></i><span>Capturar foto</span>
       </button>
+    </div>
+  </div>
+
+  <!-- Modal ¿Qué somos? -->
+  <div id="modalQueSomos" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="tituloQueSomos" hidden>
+    <div class="modal-panel about-panel">
+      <div class="modal-head">
+        <h2 id="tituloQueSomos" tabindex="-1">¿Qué es EcoRed Puebla?</h2>
+        <button type="button" id="btnCerrarQueSomos" class="btn btn-ghost">Cerrar</button>
+      </div>
+      <p class="about-lead">Una red para cuidar el río Atoyac y sus barrancas: tú reportas lo que ves, los sensores del río miden el agua y Administración lleva cada caso a la autoridad que debe atenderlo.</p>
+
+      <h3 class="about-h">Cómo funciona</h3>
+      <ol class="about-steps">
+        <li><span class="about-num" aria-hidden="true">1</span><div><strong>Reportas con una foto.</strong> Basura, espuma, agua de color o una descarga: con la foto y el punto exacto basta. No necesitas cuenta.</div></li>
+        <li><span class="about-num" aria-hidden="true">2</span><div><strong>Los sensores lo confirman.</strong> Nodos a lo largo del Alto Atoyac miden pH, conductividad, turbidez y color. Si tu reporte coincide con un cambio en el agua, el caso gana certeza.</div></li>
+        <li><span class="about-num" aria-hidden="true">3</span><div><strong>Se atiende y te avisamos.</strong> Administración valida el reporte y lo canaliza a la dependencia que corresponde. Con tu folio sigues el avance en «Mis reportes».</div></li>
+      </ol>
+
+      <h3 class="about-h">Tu privacidad</h3>
+      <p class="small">Puedes enviar de forma anónima. Al público solo se muestran el lugar y el estado del reporte; tu nota y tu foto solo las ve Administración.</p>
+
+      <h3 class="about-h">Quiénes somos</h3>
+      <p class="small">Prototipo del HackaTec 2026 para el reto SECIHTI Puebla. Los datos de los sensores todavía son simulados; los reportes que envíes sí llegan a la plataforma.</p>
+
+      <div class="about-actions">
+        <button type="button" id="btnQueSomosReportar" class="btn btn-primary btn-block">
+          <i data-lucide="camera" aria-hidden="true"></i><span>Hacer un reporte</span>
+        </button>
+        <a class="btn-link about-admin" href="../login.html">Acceso para administración</a>
+      </div>
     </div>
   </div>
 

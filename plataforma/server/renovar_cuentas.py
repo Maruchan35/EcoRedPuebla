@@ -1,4 +1,4 @@
-"""Deja solo las cuentas de Administración y crea una cuenta nueva por rol, cada una con su contraseña.
+"""Deja solo las cuentas de Administración y crea de nuevo la cuenta ciudadana de demostración, con contraseña nueva.
 
     Con el servidor apagado:   python -m server.renovar_cuentas
 

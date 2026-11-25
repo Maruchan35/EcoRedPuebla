@@ -48,6 +48,10 @@ con = conectar()
 catalogo_nuevo = semilla.catalogo(con)                  # True si se creó o si cambiaron posiciones de nodos y tramos
 # Radio para ligar reportes, velocidades del agua y días sin visita que haya guardado Administración
 DIAS_SIN_VISITA = red.aplicar_ajustes(con)["dias_sin_visita"]
+# Solo quedan Administración y ciudadanía: las cuentas de los roles que se quitaron se borran al arrancar
+_retiradas = semilla.quitar_roles_retirados(con, seguridad.ROLES)
+if _retiradas:
+    print(f"[Vigía Atoyac] Se borraron {len(_retiradas)} cuentas de roles que ya no existen: {', '.join(_retiradas)}")
 if DEMO:
     semilla.cuentas_demo(con)
     # Los reportes y casos de la demo se ubican sobre el cauce: si el cauce cambió, se vuelven a generar
@@ -1260,10 +1264,10 @@ async def actuar_caso(caso_id: str, datos: AccionCaso, u: dict = Depends(con_ses
     if not d:
         raise HTTPException(404, "El caso no existe.")
     if d["dep"] not in _deps(u):
-        raise HTTPException(403, f"Solo {motor.DEPENDENCIAS[d['dep']]} puede actualizar este caso.")
+        raise HTTPException(403, "Solo Administración puede actualizar los casos.")
     if d["estado"] == "Cerrado":
         raise HTTPException(409, "El caso ya está cerrado.")
-    firma = quien(u) if u["rol"] != "admin" else f"{motor.DEPENDENCIAS[d['dep']]} (vía Administración)"
+    firma = f"{motor.DEPENDENCIAS[d['dep']]} (vía Administración)"
     aviso = None
     if datos.accion == "atender":
         if d["estado"] != "Nuevo":
@@ -1498,7 +1502,12 @@ async def demo_reiniciar(u: dict = Depends(con_permiso("config"))):
 # =========================================================
 @app.get("/", include_in_schema=False)
 @app.get("/index.html", include_in_schema=False)
-async def pagina_principal():
+async def pagina_principal(request: Request):
+    """La plataforma (sensores, casos, reportes, configuración) es de Administración. Quien llega sin esa sesión
+    va directo a reportar en la app ciudadana; Administración entra por /login.html."""
+    fila = seguridad.usuario_de_token(con, request.cookies.get(seguridad.COOKIE, ""))
+    if not fila or fila["rol"] not in seguridad.PERSONAL:
+        return RedirectResponse(url="/app/", status_code=302)
     return FileResponse(WEB / "index.html")
 
 

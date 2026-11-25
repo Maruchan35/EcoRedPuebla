@@ -157,13 +157,10 @@ def trazo_entre(k0: float, k1: float) -> list:
     return [punto_en_rio(k0)] + [p for p, k in zip(pts, km) if k0 < k < k1] + [punto_en_rio(k1)]
 
 
-# Cuentas de demostración: una por rol, cada una con su contraseña (quedan anotadas en datos/cuentas_demo.txt)
+# Cuentas de demostración: Administración y una cuenta ciudadana, cada una con su contraseña (quedan anotadas en
+# datos/cuentas_demo.txt). Sin cuenta también se puede reportar, de forma anónima.
 CUENTAS_DEMO = [
     ("admin@vigia.demo", "Mtra. Daniela Ortega Ruiz", "admin"),
-    ("mariana.cuautle@vigia.demo", "Biól. Mariana Cuautle Romero", "ambiental"),
-    ("arturo.tepox@vigia.demo", "C. Arturo Tepox Huerta", "limpia"),
-    ("raul.ixtlapale@vigia.demo", "Cmdte. Raúl Ixtlapale Flores", "pc"),
-    ("diego.tlatelpa@vigia.demo", "Ing. Diego Tlatelpa Morales", "tec"),
     ("lupita.sanchez@vigia.demo", "Guadalupe Sánchez Tecuatl", "ciudadano"),
 ]
 ARCHIVO_CUENTAS = DATOS / "cuentas_demo.txt"
@@ -849,10 +846,10 @@ def _casos(con, rng, t, eventos, crecidas, llenadas, reportes, visitas, ids) -> 
 
 
 def _accesos(con, rng, t, ids) -> None:
-    """Bitácora de las últimas dos semanas: el personal entra en días hábiles; algún error de contraseña;
+    """Bitácora de las últimas dos semanas: Administración entra en días hábiles; algún error de contraseña;
     un intento de fuerza bruta desde fuera que terminó bloqueado."""
     cuentas = {f["rol"]: f for f in con.execute("SELECT id, cuenta, rol FROM usuarios WHERE demo = 1")}
-    ips = {"admin": "10.20.4.31", "ambiental": "10.20.7.112", "limpia": "10.32.1.58", "pc": "189.203.44.17", "tec": "148.208.90.23"}
+    ips = {"admin": "10.20.4.31"}
     filas = []
     for dias in range(14, -1, -1):
         t_dia = (sim.dia_local(t) - dias) * D - sim.UTC_A_LOCAL
@@ -888,8 +885,8 @@ def _notificaciones(con, t, ids, reportes) -> None:
 
 
 NOTA_ACCESO = ("Se entra igual que con una cuenta real: correo y contraseña en la pantalla de inicio de sesión.\n"
-               "Cada cuenta ve solo los módulos de su rol. Administración puede crear cuentas nuevas y ajustar\n"
-               "los permisos de cada persona en Usuarios.\n")
+               "Administración ve toda la plataforma y da de alta otras cuentas en Usuarios. La ciudadanía reporta\n"
+               "desde la app, con su cuenta o sin cuenta (de forma anónima).\n")
 _NOTA_VIEJA = "En la computadora del servidor no hace falta escribirla"        # de cuando había entrada de un clic
 
 
@@ -897,7 +894,7 @@ def _texto_cuentas(filas) -> str:
     """filas: (rol, cuenta, contraseña, nombre). Una línea por cuenta, columnas separadas por espacios."""
     ancho = max(len(c) for _, c, _, _ in filas)
     tabla = [f"{'Rol':10} {'Cuenta':{ancho}} {'Contraseña':14} Nombre"] + [f"{r:10} {c:{ancho}} {k:14} {n}" for r, c, k, n in filas]
-    return ("Cuentas de demostración de Vigía Atoyac: una por rol, cada una con su contraseña\n\n" + "\n".join(tabla)
+    return ("Cuentas de demostración de Vigía Atoyac, cada una con su contraseña\n\n" + "\n".join(tabla)
             + "\n\n" + NOTA_ACCESO + "Para dejar solo Administración y crear cuentas nuevas, con el servidor apagado:\n"
             "python -m server.renovar_cuentas\n")
 
@@ -957,6 +954,26 @@ def renovar_cuentas(con) -> list:
               for f in con.execute("SELECT cuenta, nombre FROM usuarios WHERE rol = 'admin' ORDER BY id")]
     ARCHIVO_CUENTAS.write_text(_texto_cuentas(admins + nuevas), encoding="utf-8")
     return admins + nuevas
+
+
+def quitar_roles_retirados(con, vigentes) -> list:
+    """Solo quedan Administración y ciudadanía. Las cuentas de los roles que se quitaron (Autoridad ambiental, Limpia,
+    Protección Civil, Tecnológicos) se borran al arrancar, con sus sesiones, avisos y renglones de la bitácora, y
+    salen del archivo de cuentas. Los reportes y casos no se tocan. Devuelve las cuentas borradas."""
+    roles = tuple(vigentes)
+    marcas = ",".join("?" * len(roles))
+    viejas = [f["cuenta"] for f in con.execute(f"SELECT cuenta FROM usuarios WHERE rol NOT IN ({marcas})", roles)]
+    if not viejas:
+        return []
+    with transaccion(con):
+        con.executemany("DELETE FROM accesos WHERE cuenta = ?", [(c,) for c in viejas])
+        con.execute(f"DELETE FROM usuarios WHERE rol NOT IN ({marcas})", roles)   # sesiones y avisos se van en cascada
+    anotadas = leer_cuentas_demo()                                  # ya solo lee los roles que siguen
+    filas = [(f["rol"], f["cuenta"], anotadas[f["cuenta"]][1], f["nombre"])
+             for f in con.execute("SELECT cuenta, nombre, rol FROM usuarios WHERE demo = 1 ORDER BY id") if f["cuenta"] in anotadas]
+    if filas:
+        ARCHIVO_CUENTAS.write_text(_texto_cuentas(filas), encoding="utf-8")
+    return viejas
 
 
 def resumen_cuentas_demo() -> str:

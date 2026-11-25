@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Iniciar sesión · Vigía Atoyac</title>
-  <meta name="description" content="Acceso del personal de las dependencias a la plataforma Vigía Atoyac.">
+  <meta name="description" content="Acceso de Administración a la plataforma Vigía Atoyac.">
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body class="login-body">
@@ -20,9 +20,9 @@
       <div class="login-pitch">
         <h1>Sensores que vigilan, ciudadanos que reportan, gobierno que actúa.</h1>
         <ul class="login-points">
-          <li><i data-lucide="radio-tower" aria-hidden="true"></i><span><strong>Nodos en el río.</strong> Miden y guardan sin internet; sus datos llegan con cada visita de Protección Civil.</span></li>
-          <li><i data-lucide="smartphone" aria-hidden="true"></i><span><strong>Reportes de la app.</strong> Fotos y ubicación de la ciudadanía, al momento.</span></li>
-          <li><i data-lucide="folder-open" aria-hidden="true"></i><span><strong>Casos con folio.</strong> Cada evento se asigna solo a la dependencia que debe atenderlo.</span></li>
+          <li><i data-lucide="radio-tower" aria-hidden="true"></i><span><strong>Nodos en el río.</strong> Miden y guardan sin internet; sus datos llegan con cada visita de campo.</span></li>
+          <li><i data-lucide="smartphone" aria-hidden="true"></i><span><strong>Reportes de la app.</strong> Fotos y ubicación de la ciudadanía, al momento y sin necesidad de cuenta.</span></li>
+          <li><i data-lucide="folder-open" aria-hidden="true"></i><span><strong>Casos con folio.</strong> Administración valida cada evento y lo canaliza a la dependencia que debe atenderlo.</span></li>
         </ul>
       </div>
       <p class="login-foot">Prototipo HackaTec 2026 · Reto SECIHTI Puebla</p>
@@ -34,7 +34,7 @@
         <!-- Paso 1: cuenta y contraseña -->
         <div id="stepLogin" class="login-step">
           <h2 id="loginTitle">Iniciar sesión</h2>
-          <p class="muted">Acceso para el personal de las dependencias y los Tecnológicos. Cada cuenta ve solo los módulos que le asignó Administración.</p>
+          <p class="muted">Acceso para Administración: sensores, reportes, casos y configuración. Para reportar un problema no necesitas cuenta.</p>
 
           <div class="banner" id="notice" role="status" hidden></div>
 
@@ -56,12 +56,11 @@
 
           <details class="login-help">
             <summary>¿Olvidaste tu contraseña o no tienes cuenta?</summary>
-            <p class="small">Las cuentas del personal las crea Administración. Pídele una <strong>contraseña temporal</strong>: al entrar con ella, el sistema te pide crear la tuya.
+            <p class="small">Las cuentas de Administración las da de alta otra cuenta de Administración. Pide una <strong>contraseña temporal</strong>: al entrar con ella, el sistema te pide crear la tuya.
               Después de 5 intentos fallidos la cuenta se bloquea un minuto.</p>
           </details>
 
-          <p class="small login-alt"><a href="./">Ver el mapa público sin iniciar sesión</a></p>
-          <p class="small login-alt"><a href="/app/">¿Vas a reportar un problema? Abrir App Ciudadana</a></p>
+          <p class="small login-alt"><a href="/app/">¿Vas a reportar un problema? Hazlo aquí, sin cuenta</a></p>
         </div>
 
         <!-- Paso 2: la cuenta entró con una contraseña temporal y debe crear la suya -->

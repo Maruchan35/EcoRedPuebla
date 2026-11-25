@@ -1365,13 +1365,13 @@
     const RESULT = { ok: ["ok", "Entró"], clave: ["warn", "Contraseña incorrecta"], desactivada: ["neutral", "Cuenta desactivada"], bloqueo: ["crit", "Bloqueada por intentos"] };
     let list = [], cat = null;
     main.innerHTML = `
-      ${pageHead("Usuarios", "Cuentas del personal, qué puede usar cada persona y bitácora de accesos")}
+      ${pageHead("Usuarios", "Cuentas de Administración y de la ciudadanía, y bitácora de accesos")}
       <section class="card" aria-labelledby="newTitle">
         <div class="card-head"><h2 id="newTitle">Nueva cuenta</h2></div>
         <form class="card-body form-grid cols" id="newForm" novalidate>
           <div class="field"><label for="nuNombre">Nombre</label><input id="nuNombre" type="text" required minlength="2" maxlength="80" autocomplete="off"></div>
           <div class="field"><label for="nuCuenta">Correo o teléfono</label><input id="nuCuenta" type="text" required maxlength="120" autocomplete="off" inputmode="email"></div>
-          <div class="field"><label for="nuRol">Rol</label><select id="nuRol">${roleOptions("ambiental")}</select></div>
+          <div class="field"><label for="nuRol">Rol</label><select id="nuRol">${roleOptions("admin")}</select></div>
           ${passField("nuClave", "Contraseña temporal", { help: "Mínimo 8 caracteres. Al entrar por primera vez, el sistema le pide crear la suya." })}
           <fieldset class="perm-set"><legend>Qué podrá usar</legend><div class="perm-grid" id="nuPerms"><p class="small muted">Cargando permisos…</p></div></fieldset>
           <p class="form-error" id="nuErr" role="alert" hidden></p>
@@ -1395,7 +1395,7 @@
     const grantable = () => Object.keys(cat.permisos).filter(p => !cat.solo_admin.includes(p));
     function permGrid(prefix, rol, selected) {
       if (fixedPerms(rol)) return `<p class="small muted">${rol === "admin" ? "Administración tiene acceso a todo, incluidas las cuentas y la configuración."
-        : "La ciudadanía reporta desde la app; en la plataforma solo ve la vista pública."}</p>`;
+        : "La ciudadanía reporta desde la app; no entra a esta plataforma."}</p>`;
       const preset = cat.por_rol[rol] || [];
       return grantable().map(p => `<label class="perm-item" for="${prefix}_${p}"><input type="checkbox" id="${prefix}_${p}" value="${p}"${selected.includes(p) ? " checked" : ""}>
         <span><strong>${esc(C.permisoLabels[p] || p)}</strong>${preset.includes(p) ? ` <span class="perm-tag">del rol</span>` : ""}<span class="sub">${esc(cat.permisos[p])}</span></span></label>`).join("");

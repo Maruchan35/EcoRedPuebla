@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS usuarios (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   cuenta        TEXT NOT NULL UNIQUE,          -- correo o teléfono, en minúsculas
   nombre        TEXT NOT NULL,
-  rol           TEXT NOT NULL,                 -- ciudadano | ambiental | limpia | pc | tec | admin
+  rol           TEXT NOT NULL,                 -- ciudadano | admin
   hash          TEXT NOT NULL,                 -- pbkdf2_sha256$iteraciones$sal$derivada
   activo        INTEGER NOT NULL DEFAULT 1,
   demo          INTEGER NOT NULL DEFAULT 0,
