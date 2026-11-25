@@ -121,6 +121,11 @@ export function crearControladorCamara({ modalEl, videoEl, errorEl, onCaptura })
   return { abrir, detener, tomarFoto };
 }
 
+// El reporte marca el lugar del suceso: GPS con 5 m o menos de margen, o el punto marcado a mano con el mapa
+// a nivel de calle (zoom 18: unos 0.6 m por píxel en Puebla), donde se puede atinar a pocos metros
+export const PRECISION_MAX_M = 5;
+export const ZOOM_EXACTO = 18;
+
 export function crearMiniMapaUbicacion(contenedorId, { onCambio }) {
   const L = window.L;
   if (!L) return null;
@@ -133,23 +138,29 @@ export function crearMiniMapaUbicacion(contenedorId, { onCambio }) {
   L.tileLayer(CONFIG.MAP_TILES_URL, { maxZoom: 19, attribution: CONFIG.MAP_ATTRIBUTION }).addTo(map);
 
   const marker = L.marker([inicial.lat, inicial.lng], { draggable: true }).addTo(map);
+  // Marcado a mano: solo cuenta como el punto exacto con el mapa a nivel de calle; si está más lejos,
+  // primero se acerca ahí para que la persona afine el pin
+  const marcarAMano = (lat, lng) => {
+    const exacto = map.getZoom() >= ZOOM_EXACTO;
+    // Sin animación: así el siguiente toque ya ve el zoom nuevo aunque llegue enseguida
+    if (!exacto) map.setView([lat, lng], ZOOM_EXACTO, { animate: false });
+    onCambio(Number(lat.toFixed(6)), Number(lng.toFixed(6)), exacto ? "marcado en el mapa" : "acerca el mapa",
+      { origen: exacto ? "mapa" : null });
+  };
   marker.on("dragend", () => {
     const pos = marker.getLatLng();
-    onCambio(Number(pos.lat.toFixed(6)), Number(pos.lng.toFixed(6)), "ajuste manual");
+    marcarAMano(pos.lat, pos.lng);
   });
-
   map.on("click", (e) => {
-    const lat = Number(e.latlng.lat.toFixed(6));
-    const lng = Number(e.latlng.lng.toFixed(6));
-    marker.setLatLng([lat, lng]);
-    onCambio(lat, lng, "selección en mapa");
+    marker.setLatLng(e.latlng);
+    marcarAMano(e.latlng.lat, e.latlng.lng);
   });
 
   return {
-    fijar(lat, lng, fuente, zoom = 15) {
+    fijar(lat, lng, fuente, zoom = 15, info = {}) {
       marker.setLatLng([lat, lng]);
       map.setView([lat, lng], zoom);
-      onCambio(Number(lat.toFixed(6)), Number(lng.toFixed(6)), fuente);
+      onCambio(Number(lat.toFixed(6)), Number(lng.toFixed(6)), fuente, info);
     },
     invalidarTamano() {
       setTimeout(() => map.invalidateSize(), 80);
@@ -157,25 +168,45 @@ export function crearMiniMapaUbicacion(contenedorId, { onCambio }) {
   };
 }
 
-export function obtenerGpsDispositivo() {
+// La primera lectura del GPS suele traer 10–60 m de margen: se sigue escuchando hasta bajar a 5 m o menos
+// (o hasta `maxMs`) y se devuelve la mejor lectura. `onAvance` recibe cada mejora para mostrarla.
+export function obtenerGpsDispositivo({ onAvance, maxMs = 30000 } = {}) {
   return new Promise((resolve, reject) => {
     if (!("geolocation" in navigator)) {
-      reject(new Error("Tu navegador no soporta geolocalización."));
+      reject(new Error("Tu navegador no soporta geolocalización. Marca el punto exacto en el mapa."));
       return;
     }
-    navigator.geolocation.getCurrentPosition(
+    let mejor = null;
+    let vigilancia = null;
+    let reloj = null;
+    let terminado = false;
+    const terminar = (fin) => {
+      if (terminado) return;
+      terminado = true;
+      if (vigilancia !== null) navigator.geolocation.clearWatch(vigilancia);
+      clearTimeout(reloj);
+      fin();
+    };
+    vigilancia = navigator.geolocation.watchPosition(
       (pos) => {
         const lat = Number(pos.coords.latitude.toFixed(6));
         const lng = Number(pos.coords.longitude.toFixed(6));
-        const precision = Math.round(pos.coords.accuracy || 0);
-        resolve({ lat, lng, precision, dentroPuebla: estaEnPuebla(lat, lng) });
+        const precision = Math.max(1, Math.round(pos.coords.accuracy || 999));
+        if (!mejor || precision < mejor.precision) {
+          mejor = { lat, lng, precision, dentroPuebla: estaEnPuebla(lat, lng) };
+          onAvance?.(mejor);
+        }
+        if (mejor.precision <= PRECISION_MAX_M) terminar(() => resolve(mejor));
       },
       (err) => {
-        if (err.code === 1) reject(new Error("Permiso de ubicación denegado. Elige un punto en el mapa o usa una referencia."));
-        else reject(new Error("No se pudo obtener señal GPS en este punto. Selecciona el tramo en el mapa."));
+        if (err.code === 1) terminar(() => reject(new Error("Permiso de ubicación denegado. Marca el punto exacto en el mapa.")));
+        // Sin señal por un momento: se sigue esperando hasta el tiempo límite
       },
-      { enableHighAccuracy: true, timeout: 9000, maximumAge: 15000 }
+      { enableHighAccuracy: true, maximumAge: 0, timeout: maxMs }
     );
+    reloj = setTimeout(() => terminar(() => (mejor
+      ? resolve(mejor)
+      : reject(new Error("No se obtuvo señal GPS. Sal a cielo abierto o marca el punto exacto en el mapa.")))), maxMs);
   });
 }
 

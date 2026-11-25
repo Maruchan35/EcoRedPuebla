@@ -42,13 +42,15 @@ def lectura_api(f) -> dict:
 def reporte_api(f, completo: bool, usuario_id=None) -> dict:
     """La identidad de quien reporta nunca sale del servidor; solo `mine` para su propio dueño."""
     if not completo:
-        # Público: solo el problema y su ubicación aproximada (≈100 m)
-        return {"id": f["id"], "cat": f["cat"], "lat": round(f["lat"], 3), "lng": round(f["lng"], 3), "t": f["t"],
+        # Público: solo el problema y el lugar del suceso (5 decimales ≈ 1 m), sin nada de quién lo reportó
+        return {"id": f["id"], "cat": f["cat"], "lat": round(f["lat"], 5), "lng": round(f["lng"], 5), "t": f["t"],
                 "status": f["estado"], "text": "", "ai": None, "anonymous": False, "voice": False, "photo": False,
                 "mine": usuario_id is not None and f["usuario_id"] == usuario_id}
     ia = {"label": f["ia_etiqueta"], "conf": f["ia_confianza"]} if f["ia_etiqueta"] else None
     return {"id": f["id"], "cat": f["cat"], "ai": ia, "lat": f["lat"], "lng": f["lng"], "t": f["t"], "status": f["estado"],
             "anonymous": bool(f["anonimo"]), "voice": bool(f["voz"]), "text": f["texto"] or "", "photo": bool(f["foto"]),
+            "loc": f["ubicacion"] if "ubicacion" in f.keys() else None,                 # gps o mapa
+            "precision": f["precision_m"] if "precision_m" in f.keys() else None,       # margen del GPS, m
             "mine": usuario_id is not None and f["usuario_id"] == usuario_id}
 
 

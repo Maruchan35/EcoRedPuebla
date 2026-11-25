@@ -35,8 +35,8 @@ class Cliente:
         self.abre = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(self.jar))
         self.cabecera, self.token = cabecera, None
 
-    def pedir(self, metodo, ruta, json_=None, form=None, archivos=None, crudo=False):
-        cab, cuerpo = {}, None
+    def pedir(self, metodo, ruta, json_=None, form=None, archivos=None, crudo=False, cabeceras=None):
+        cab, cuerpo = dict(cabeceras or {}), None
         if self.cabecera:
             cab["X-VA"] = "1"
         if self.token:
@@ -168,6 +168,18 @@ def main():
     comprobar("seguimiento público por folio, sin texto", c == 200 and r["text"] == "" and r["status"] == "Recibido", r)
     c, anon = pub.pedir("POST", "/api/reportes", form={"cat": "Mal olor", "lat": 19.03, "lng": -98.23, "texto": "anónimo"})
     comprobar("reporte anónimo sin sesión", c == 201 and anon["anonymous"] and not anon["mine"], anon)
+    # El reporte marca el lugar del suceso: GPS con 5 m o menos de margen, o el punto marcado a mano en el mapa
+    c, r = pub.pedir("POST", "/api/reportes", form={"cat": "Basura", "lat": 19.18717, "lng": -98.30329, "ubicacion": "gps", "precision_m": "12"})
+    comprobar("un GPS con más de 5 m de margen se rechaza", c == 422, r)
+    c, exacto = pub.pedir("POST", "/api/reportes", form={"cat": "Basura", "lat": 19.187213, "lng": -98.303377, "ubicacion": "gps", "precision_m": "3.6"})
+    comprobar("un GPS de 5 m o menos se acepta", c == 201, exacto)
+    if c == 201:
+        c, vista = pub.pedir("GET", f"/api/reportes/{exacto['id']}")
+        desvio = max(abs(vista["lat"] - 19.187213) * 111320, abs(vista["lng"] + 98.303377) * 105150) if c == 200 else 99
+        comprobar("el público ve el lugar del suceso a 5 m o menos", desvio <= 5, vista)
+        _, est = admin.pedir("GET", "/api/estado")
+        r = next((x for x in est["reports"] if x["id"] == exacto["id"]), {})
+        comprobar("el personal ve de dónde salió la ubicación y su margen", r.get("loc") == "gps" and r.get("precision") == 3.6, r)
     comprobar("la ciudadanía no cambia el estado de reportes", app.pedir("PATCH", f"/api/reportes/{folio}", {"estado": "Validado"})[0] == 403)
 
     print("\nRecolección: archivo de la microSD con una descarga")
@@ -300,6 +312,13 @@ def main():
     comprobar("repetir la visita enseguida avisa que no hay datos nuevos", admin.pedir("POST", "/api/demo/visita", {"nodo": "N3", "evento": "descarga"})[0] == 409)
     comprobar("las simulaciones son solo de Administración", pc.pedir("POST", "/api/demo/reporte", {})[0] == 403)
     comprobar("cerrar sesión", pc.pedir("POST", "/api/auth/salir", {})[0] == 200 and pc.pedir("GET", "/api/auth/yo")[1]["usuario"] is None)
+
+    print("\nTúnel de Cloudflare")
+    # cloudflared se conecta desde la misma máquina: la dirección real del visitante llega en CF-Connecting-IP
+    Cliente().pedir("POST", "/api/auth/entrar", {"cuenta": "tunel@vigia.demo", "clave": "no-es-la-clave"}, cabeceras={"CF-Connecting-IP": "203.0.113.9"})
+    _, log = admin.pedir("GET", "/api/accesos?limite=10")
+    comprobar("detrás del túnel se registra la dirección real del visitante",
+              any(a["cuenta"] == "tunel@vigia.demo" and a["ip"] == "203.0.113.9" for a in log), log[:2])
 
     print("\nLímite de intentos")
     # Cuenta nueva en cada corrida: así repetir la prueba enseguida no hereda el bloqueo de la corrida anterior

@@ -133,6 +133,9 @@ export async function enviarReporte(datos) {
   form.append("texto", (datos.texto || "").slice(0, 500));
   form.append("anonimo", datos.anonimo ? "true" : "false");
   form.append("voz", datos.voz ? "true" : "false");
+  // Lugar del suceso: "gps" con su margen en metros (5 o menos) o "mapa" si se marcó a mano
+  if (datos.ubicacion) form.append("ubicacion", datos.ubicacion);
+  if (datos.precision_m !== null && datos.precision_m !== undefined) form.append("precision_m", String(datos.precision_m));
 
   if (datos.ia_etiqueta) {
     form.append("ia_etiqueta", datos.ia_etiqueta);

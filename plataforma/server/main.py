@@ -142,7 +142,12 @@ def solo_demo() -> None:
 
 
 def ip(request: Request) -> str:
-    return request.client.host if request.client else "?"
+    """Dirección de quien pide. Detrás del túnel de Cloudflare (cloudflared en esta misma máquina) todo llega
+    desde 127.0.0.1; la dirección real la pone Cloudflare en CF-Connecting-IP y quien visita no puede cambiarla
+    a través del túnel. Por eso esa cabecera solo se acepta cuando la conexión es local."""
+    directa = request.client.host if request.client else "?"
+    real = request.headers.get("cf-connecting-ip", "").strip()
+    return real[:45] if real and directa in ("127.0.0.1", "::1") else directa
 
 
 def quien(u: dict) -> str:
@@ -733,6 +738,7 @@ async def guardar_umbrales(datos: Umbrales, u: dict = Depends(con_permiso("confi
 # =========================================================
 FIRMAS = {b"\xff\xd8\xff": ".jpg", b"\x89PNG\r\n\x1a\n": ".png"}
 MAX_FOTO = 5 * 1024 * 1024
+PRECISION_MAX_M = 5.0                    # el reporte marca el lugar del suceso: margen del GPS de 5 m o menos
 
 
 _CLASIFICADOR_FN = None
@@ -789,13 +795,23 @@ async def despues_de_reporte(fila) -> None:
 async def crear_reporte(request: Request, cat: str = Form(...), lat: float = Form(...), lng: float = Form(...),
                         texto: str = Form(""), anonimo: bool = Form(False), voz: bool = Form(False),
                         ia_etiqueta: str = Form(""), ia_confianza: Optional[float] = Form(None),
+                        ubicacion: str = Form(""), precision_m: Optional[float] = Form(None),
                         foto: Optional[UploadFile] = File(None), u: Optional[dict] = Depends(actual)):
     """Reporte ciudadano (lo envía la app). Con sesión queda ligado a la cuenta para avisarle del avance;
-    sin sesión o con `anonimo=true` no se guarda quién lo envió."""
+    sin sesión o con `anonimo=true` no se guarda quién lo envió. La ubicación es el lugar del suceso:
+    `ubicacion=gps` con `precision_m` de 5 m o menos, o `ubicacion=mapa` si la persona marcó el punto a mano."""
     if cat not in motor.CATEGORIAS:
         raise HTTPException(422, "Categoría no válida. Usa: " + ", ".join(motor.CATEGORIAS) + ".")
     if not (AREA[0] <= lat <= AREA[1] and AREA[2] <= lng <= AREA[3]):
         raise HTTPException(422, "La ubicación está fuera del estado de Puebla.")
+    if ubicacion == "gps" or precision_m is not None:
+        if precision_m is None or not 0 <= precision_m <= PRECISION_MAX_M:
+            margen = f"±{precision_m:.0f} m" if precision_m is not None else "una ubicación sin margen"
+            raise HTTPException(422, f"El GPS marca {margen} y el lugar del suceso necesita 5 m o menos. "
+                                     "Vuelve a tomar el GPS a cielo abierto o marca el punto exacto en el mapa.")
+        ubicacion = "gps"
+    elif ubicacion != "mapa":
+        ubicacion = None                                         # versiones anteriores de la app: sin dato
     if not cuota_reportes.permitir(f"u{u['id']}" if u else ip(request)):
         raise HTTPException(429, "Llegaron muchos reportes desde aquí en poco tiempo. Inténtalo más tarde.")
     nombre_foto = None
@@ -814,10 +830,12 @@ async def crear_reporte(request: Request, cat: str = Form(...), lat: float = For
     if not ia and ia_etiqueta in motor.CATEGORIAS and ia_confianza is not None and 0 <= ia_confianza <= 1:
         ia = (ia_etiqueta, ia_confianza)                                # clasificación hecha en el teléfono
     folio = f"R-{siguiente(con, 'reporte', 1300)}"
-    con.execute("""INSERT INTO reportes (id, usuario_id, cat, ia_etiqueta, ia_confianza, lat, lng, t, estado, anonimo, voz, texto, foto)
-                   VALUES (?,?,?,?,?,?,?,?,'Recibido',?,?,?,?)""",
+    con.execute("""INSERT INTO reportes (id, usuario_id, cat, ia_etiqueta, ia_confianza, lat, lng, t, estado, anonimo, voz, texto, foto,
+                                         ubicacion, precision_m)
+                   VALUES (?,?,?,?,?,?,?,?,'Recibido',?,?,?,?,?,?)""",
                 (folio, None if anonimo or not u else u["id"], cat, ia[0] if ia else None, ia[1] if ia else None, lat, lng, ahora(),
-                 int(anonimo or not u), int(voz), texto.strip()[:500], nombre_foto))
+                 int(anonimo or not u), int(voz), texto.strip()[:500], nombre_foto,
+                 ubicacion, round(precision_m, 1) if precision_m is not None else None))
     fila = con.execute("SELECT * FROM reportes WHERE id = ?", (folio,)).fetchone()
     await despues_de_reporte(fila)
     return modelos.reporte_api(con.execute("SELECT * FROM reportes WHERE id = ?", (folio,)).fetchone(), True, u["id"] if u else None)

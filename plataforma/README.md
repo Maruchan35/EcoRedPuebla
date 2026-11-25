@@ -170,7 +170,7 @@ generar los datos de demostración al arrancar.
 | `server/simulacion.py` | Modelo de simulación del río y de la estación piloto (datos de demostración, determinista) |
 | `server/lotes.py` | Lectura y validación del CSV de la microSD, huella encadenada, generador de ejemplos |
 | `server/db.py`, `server/modelos.py`, `server/semilla.py` | Esquema SQLite, formato de respuestas, datos iniciales |
-| `server/prueba_rapida.py` | Prueba de punta a punta de la API (98 comprobaciones) |
+| `server/prueba_rapida.py` | Prueba de punta a punta de la API (103 comprobaciones) |
 | `server/renovar_cuentas.py` | Deja solo Administración y crea de nuevo una cuenta por rol, cada una con su contraseña |
 | `server/prueba_motor.py` | Prueba del motor sin servidor: tiempo de tránsito del agua entre nodos (base temporal) |
 | `docs/api.md`, `docs/formato-lote.md` | Referencia para la app móvil y para el firmware del nodo |
@@ -219,7 +219,11 @@ retraso real de una misma descarga entre dos nodos.
 - Cada ruta revisa en el servidor los permisos de la persona: la web solo esconde menús, no decide permisos.
 - Con contraseña temporal, el servidor no entrega datos hasta que la persona crea la suya.
 - Cambiar rol, contraseña o desactivar una cuenta cierra sus sesiones abiertas al momento.
-- El público nunca recibe texto de reportes, fotos ni quién reportó; la ubicación va redondeada a ~100 m.
+- El público nunca recibe texto de reportes, fotos ni quién reportó; sí el lugar del suceso (≈1 m). La app solo envía
+  un reporte con GPS de 5 m o menos de margen o con el punto marcado a mano en el mapa a nivel de calle, y el
+  servidor rechaza un GPS de más de 5 m.
+- Detrás del túnel de Cloudflare los límites de intentos y de reportes usan la dirección real de cada visitante
+  (`CF-Connecting-IP`, que solo se acepta si la conexión viene de la misma máquina, como la de `cloudflared`).
 - Cinco contraseñas fallidas bloquean un minuto; cada intento queda en la bitácora. Fotos: solo JPG/PNG/WebP de hasta 5 MB.
 - **Modo demo** (`VA_DEMO=1`, por defecto): crea cuentas de prueba con contraseña conocida y activa las simulaciones.
   Para cualquier servidor público: `VA_DEMO=0`, `VA_ADMIN_CUENTA`, `VA_ADMIN_CLAVE`, HTTPS y `VA_HTTPS=1`.

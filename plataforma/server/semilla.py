@@ -13,6 +13,7 @@ import os
 import random
 import re
 import secrets
+import zlib
 from datetime import datetime
 from pathlib import Path
 
@@ -26,7 +27,7 @@ D = 24 * H
 MIN = 60 * 1000
 
 # Cambiarla hace que el servidor vuelva a generar los datos de demostración al arrancar (solo en modo demo)
-VERSION_DEMO = "2026-11-24.4"
+VERSION_DEMO = "2026-11-24.6"
 
 # Cauce real del Atoyac entre nodos y posición de nodos y barreras: un solo archivo para el servidor y
 # para la demo sin servidor (el navegador lo carga como script; aquí se lee el JSON que trae).
@@ -460,6 +461,11 @@ def _barreras(con, rng, t) -> list:
     return llenadas
 
 
+def _fraccion(*claves) -> float:
+    """Número fijo entre 0 y 1 para unas claves, sin tocar el generador de la demo (no mueve los demás datos)."""
+    return zlib.crc32("|".join(map(str, claves)).encode("utf-8")) / 0xFFFFFFFF
+
+
 def _reporte(rid, cat, p, t_rep, estado, rng, usuario=None, texto=None, ia=True, anonimo=None, voz=None):
     if ia and rng.random() < 0.95:
         acierta = rng.random() < 0.86
@@ -472,9 +478,15 @@ def _reporte(rid, cat, p, t_rep, estado, rng, usuario=None, texto=None, ia=True,
         if rng.random() < 0.35:
             texto = texto.rstrip(".") + ", " + rng.choice(LUGARES) + "."
     anon = (rng.random() < 0.3) if anonimo is None else anonimo
+    # Lugar del suceso: casi siempre con el GPS del teléfono (margen de 2.2 a 5 m); a veces marcado a mano.
+    # Se calcula con el punto y la hora (el folio se asigna después) y sin tocar el generador de la demo
+    clave = (round(p[0], 6), round(p[1], 6), t_rep)
+    con_gps = _fraccion("ubicacion", *clave) < 0.82
     return {"id": rid, "usuario_id": None if anon else usuario, "cat": cat, "ia_etiqueta": etiqueta, "ia_confianza": conf,
             "lat": p[0], "lng": p[1], "t": t_rep, "estado": estado, "anonimo": int(anon),
-            "voz": int(rng.random() < 0.12) if voz is None else int(voz), "texto": texto}
+            "voz": int(rng.random() < 0.12) if voz is None else int(voz), "texto": texto,
+            "ubicacion": "gps" if con_gps else "mapa",
+            "precision_m": round(2.2 + 2.8 * _fraccion("precision", *clave), 1) if con_gps else None}
 
 
 def _reportes(con, rng, t, eventos, ids) -> dict:
@@ -734,9 +746,10 @@ def _casos(con, rng, t, eventos, crecidas, llenadas, reportes, visitas, ids) -> 
         if r["estado"] is None:
             r["estado"] = _estado_reporte(rng, (t - r["t"]) / D, caso["estado"] if caso else None)
         filas.append((r["id"], r["usuario_id"], r["cat"], r["ia_etiqueta"], r["ia_confianza"], r["lat"], r["lng"], r["t"], r["estado"],
-                      r["anonimo"], r["voz"], r["texto"]))
-    con.executemany("""INSERT INTO reportes (id, usuario_id, cat, ia_etiqueta, ia_confianza, lat, lng, t, estado, anonimo, voz, texto)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""", filas)
+                      r["anonimo"], r["voz"], r["texto"], r.get("ubicacion"), r.get("precision_m")))
+    con.executemany("""INSERT INTO reportes (id, usuario_id, cat, ia_etiqueta, ia_confianza, lat, lng, t, estado, anonimo, voz, texto,
+                                             ubicacion, precision_m)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", filas)
     return len(casos), len(eventos) + 1
 
 

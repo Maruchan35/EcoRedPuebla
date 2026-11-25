@@ -33,6 +33,8 @@ export async function encolarReporte(registro) {
     cat: registro.cat,
     lat: registro.lat,
     lng: registro.lng,
+    ubicacion: registro.ubicacion || null,
+    precision_m: registro.precision_m ?? null,
     texto: registro.texto || "",
     anonimo: Boolean(registro.anonimo),
     voz: Boolean(registro.voz),

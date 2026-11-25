@@ -81,7 +81,8 @@ CREATE TABLE IF NOT EXISTS reportes (
   id TEXT PRIMARY KEY, usuario_id INTEGER, cat TEXT NOT NULL,
   ia_etiqueta TEXT, ia_confianza REAL,
   lat REAL NOT NULL, lng REAL NOT NULL, t INTEGER NOT NULL, estado TEXT NOT NULL,
-  anonimo INTEGER NOT NULL DEFAULT 0, voz INTEGER NOT NULL DEFAULT 0, texto TEXT, foto TEXT
+  anonimo INTEGER NOT NULL DEFAULT 0, voz INTEGER NOT NULL DEFAULT 0, texto TEXT, foto TEXT,
+  ubicacion TEXT, precision_m REAL         -- de dónde salió la ubicación (gps o mapa) y el margen del GPS en metros
 );
 CREATE TABLE IF NOT EXISTS casos (
   id TEXT PRIMARY KEY, tipo TEXT NOT NULL, dep TEXT NOT NULL, estado TEXT NOT NULL, prioridad TEXT NOT NULL,
@@ -110,6 +111,7 @@ CREATE INDEX IF NOT EXISTS ix_casos_t ON casos (t);
 _COLUMNAS_NUEVAS = {
     "usuarios": {"permisos": "TEXT", "cambiar_clave": "INTEGER NOT NULL DEFAULT 0"},
     "lecturas": {c: "REAL" for c in ("caudal", "turb_sal", "color_sal", "cond_sal", "ph_sal", "lodos", "dp_filtro", "solar")},
+    "reportes": {"ubicacion": "TEXT", "precision_m": "REAL"},
 }
 
 

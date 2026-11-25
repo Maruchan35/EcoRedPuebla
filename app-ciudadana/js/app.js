@@ -22,7 +22,9 @@ import {
   crearMiniMapaUbicacion,
   iniciarDictadoVoz,
   obtenerGpsDispositivo,
+  PRECISION_MAX_M,
   procesarArchivoFoto,
+  ZOOM_EXACTO,
 } from "./camera-gps.js";
 import { CATEGORIAS, REFERENCIAS_CUENCA, estaEnPuebla } from "./config.js";
 import { crearMapaCalor } from "./mapa-calor.js";
@@ -39,6 +41,8 @@ const state = {
   lat: REFERENCIAS_CUENCA[0].lat,
   lng: REFERENCIAS_CUENCA[0].lng,
   fuenteUbicacion: "referencia inicial",
+  origenUbicacion: null,       // "gps" o "mapa" cuando el punto es el lugar exacto del suceso
+  precisionUbicacion: null,    // margen del GPS en metros
   usoVoz: false,
   estadoCuenca: null,
   desdeCache: false,
@@ -242,8 +246,9 @@ async function aplicarFotoCapturada(fotoData) {
   }
 
   if (fotoData.exifGps && estaEnPuebla(fotoData.exifGps.lat, fotoData.exifGps.lng)) {
-    miniMapa?.fijar(fotoData.exifGps.lat, fotoData.exifGps.lng, "metadatos GPS de la foto");
-    toast("Ubicación leída de la foto", `${fotoData.exifGps.lat}, ${fotoData.exifGps.lng}`, "info");
+    // La foto no dice con qué margen se tomó su ubicación: se acerca el mapa ahí para que la persona confirme el punto
+    miniMapa?.fijar(fotoData.exifGps.lat, fotoData.exifGps.lng, "metadatos GPS de la foto", ZOOM_EXACTO);
+    toast("Ubicación leída de la foto", "Toca el punto exacto del suceso en el mapa para confirmarlo, o usa «Mi GPS».", "info");
   } else if (fotoData.exifGps) {
     toast("GPS de la foto fuera de Puebla", "Ajusta el punto en el mapa del Alto Atoyac.", "warn");
   }
@@ -293,18 +298,36 @@ function limpiarFoto() {
 }
 
 // ---------- Paso 2: Ubicación y referencias ----------
-function actualizarEtiquetaUbicacion(lat, lng, fuente) {
+function actualizarEtiquetaUbicacion(lat, lng, fuente, info = {}) {
   state.lat = lat;
   state.lng = lng;
   state.fuenteUbicacion = fuente;
+  state.origenUbicacion = info.origen || null;
+  state.precisionUbicacion = info.precision ?? null;
   const coordsEl = $("#ubicacionCoords");
   const warnEl = $("#ubicacionAlerta");
+  const precisionEl = $("#ubicacionPrecision");
   if (coordsEl) {
     coordsEl.textContent = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
   }
   if (warnEl) {
     warnEl.hidden = estaEnPuebla(lat, lng);
   }
+  if (precisionEl) {
+    const exacta = ubicacionExacta();
+    precisionEl.textContent = state.origenUbicacion === "gps" ? `GPS ±${state.precisionUbicacion} m`
+      : state.origenUbicacion === "mapa" ? "Punto marcado en el mapa"
+      : fuente === "acerca el mapa" ? "Afina el pin en el mapa"
+      : "Falta el punto exacto";
+    precisionEl.classList.toggle("ok", exacta);
+    precisionEl.classList.toggle("warn", !exacta);
+  }
+}
+
+// El reporte marca el lugar del suceso: vale el GPS con 5 m o menos de margen o el punto marcado a nivel de calle
+function ubicacionExacta() {
+  return (state.origenUbicacion === "gps" && state.precisionUbicacion !== null && state.precisionUbicacion <= PRECISION_MAX_M)
+    || state.origenUbicacion === "mapa";
 }
 
 function inicializarReferencias() {
@@ -342,6 +365,13 @@ async function manejarEnvioReporte(ev) {
     errEl.hidden = false;
     return;
   }
+  if (!ubicacionExacta()) {
+    errEl.textContent = state.origenUbicacion === "gps"
+      ? `El GPS marca ±${state.precisionUbicacion} m y el lugar del suceso necesita ${PRECISION_MAX_M} m o menos. Toca «Mi GPS» otra vez a cielo abierto, o acerca el mapa y mueve el pin al punto exacto.`
+      : `Marca el lugar exacto del suceso: toca «Mi GPS» (${PRECISION_MAX_M} m o menos) o acerca el mapa y toca el punto exacto.`;
+    errEl.hidden = false;
+    return;
+  }
 
   const categoriaFinal =
     override !== "auto"
@@ -357,6 +387,8 @@ async function manejarEnvioReporte(ev) {
     cat: categoriaFinal,
     lat: state.lat,
     lng: state.lng,
+    ubicacion: state.origenUbicacion,
+    precision_m: state.origenUbicacion === "gps" ? state.precisionUbicacion : null,
     texto,
     anonimo,
     voz: state.usoVoz,
@@ -828,19 +860,31 @@ async function iniciar() {
 
   $("#btnObtenerGps")?.addEventListener("click", async () => {
     const btn = $("#btnObtenerGps");
+    const etiqueta = btn.querySelector("span");
     btn.disabled = true;
     try {
-      const gps = await obtenerGpsDispositivo();
-      if (gps.dentroPuebla) {
-        miniMapa?.fijar(gps.lat, gps.lng, `GPS ±${gps.precision} m`);
-        toast("Ubicación actualizada", `Precisión aproximada: ${gps.precision} m.`, "ok");
+      // Cada lectura mejor mueve el pin; se detiene al bajar a 5 m o menos (o a los 30 s con la mejor que hubo)
+      const gps = await obtenerGpsDispositivo({
+        onAvance: (lectura) => {
+          if (etiqueta) etiqueta.textContent = `Afinando GPS… ±${lectura.precision} m`;
+          if (lectura.dentroPuebla) {
+            miniMapa?.fijar(lectura.lat, lectura.lng, `GPS ±${lectura.precision} m`, ZOOM_EXACTO,
+              { origen: "gps", precision: lectura.precision });
+          }
+        },
+      });
+      if (!gps.dentroPuebla) {
+        toast("GPS fuera de Puebla", "Tus coordenadas están fuera del Alto Atoyac. Marca el punto en el mapa.", "warn");
+      } else if (gps.precision <= PRECISION_MAX_M) {
+        toast("Lugar del suceso fijado", `GPS con ±${gps.precision} m de margen.`, "ok");
       } else {
-        toast("GPS fuera de Puebla", "Tus coordenadas están fuera del Alto Atoyac. Elige un tramo en el mapa.", "warn");
+        toast("El GPS no bajó de 5 m", `Marca ±${gps.precision} m. Sal a cielo abierto y vuelve a intentar, o mueve el pin al punto exacto.`, "warn");
       }
     } catch (err) {
       toast("GPS no disponible", err.message, "warn");
     } finally {
       btn.disabled = false;
+      if (etiqueta) etiqueta.textContent = "Mi GPS";
     }
   });
 

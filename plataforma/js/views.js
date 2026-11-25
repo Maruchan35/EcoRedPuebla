@@ -779,7 +779,7 @@
         <tr><td><strong>${esc(r.id)}</strong> ${r.voice ? `<span class="badge info">${icon("mic")}Voz</span>` : ""}${r.anonymous ? ` <span class="badge neutral">${icon("eye-off")}Anónimo</span>` : ""}
             ${r.photo && !MOCK ? ` <a class="badge info" href="${VA.api.photoUrl(r)}" target="_blank" rel="noopener">${icon("image")}Ver foto</a>` : ""}<span class="sub">${esc(r.text)}</span></td>
           <td>${r.ai ? `${esc(r.ai.label)}<span class="sub">Confianza ${fmt.pct(r.ai.conf)}</span>` : `<span class="muted">Sin clasificar</span>`}</td>
-          <td>Cerca de ${esc(placeName(r.lat, r.lng))}</td><td>${stateBadge(r.status)}</td><td>${fmt.ago(r.t)}</td>
+          <td>Cerca de ${esc(placeName(r.lat, r.lng))}${r.loc ? `<span class="sub">${r.loc === "gps" ? `GPS ±${fmt.num(r.precision, 1)} m` : "Punto marcado en el mapa"}</span>` : ""}</td><td>${stateBadge(r.status)}</td><td>${fmt.ago(r.t)}</td>
           <td><div class="btn-row nowrap">
             ${r.status === "Recibido" && canEdit ? `<button class="btn btn-secondary" data-val="${r.id}">${icon("badge-check")}Validar</button><button class="btn btn-ghost" data-desc="${r.id}">Descartar</button>` : ""}
             <button class="btn btn-ghost btn-icon" data-map="${r.id}" aria-label="Ver ${esc(r.id)} en el mapa">${icon("map-pin")}</button></div></td></tr>`).join("")

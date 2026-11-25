@@ -21,7 +21,7 @@ cualquier ruta distinta de `/api/auth/yo`, `/api/auth/clave` y `/api/auth/salir`
 ## Reportes de la app
 | Método | Ruta | Para qué |
 |---|---|---|
-| POST | `/api/reportes` | Formulario `multipart`: `cat`, `lat`, `lng`, y opcionales `texto`, `foto` (JPG/PNG/WebP ≤ 5 MB), `anonimo`, `voz`, `ia_etiqueta`, `ia_confianza`. Devuelve el folio. |
+| POST | `/api/reportes` | Formulario `multipart`: `cat`, `lat`, `lng`, y opcionales `texto`, `foto` (JPG/PNG/WebP ≤ 5 MB), `anonimo`, `voz`, `ia_etiqueta`, `ia_confianza`, y el origen del lugar del suceso: `ubicacion=gps` con `precision_m` (margen del GPS en metros, 5 o menos; si no, `422`) o `ubicacion=mapa` si se marcó a mano. Devuelve el folio. El público recibe la ubicación con 5 decimales (≈1 m). |
 | GET | `/api/reportes?mios=true` | Mis reportes y su estado. |
 | GET | `/api/reportes/{folio}` | Seguimiento por folio (también para reportes anónimos). |
 | GET | `/api/notificaciones` | Avisos para mostrar como push («tu reporte avanzó»). |
