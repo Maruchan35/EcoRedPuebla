@@ -37,7 +37,7 @@ dirección `https://….trycloudflare.com`. No necesita cuenta de Cloudflare.
 - Para cortar el acceso, cierren la ventana de `compartir.bat`.
 
 ## Demostración en Colab (sin la laptop encendida)
-[![Abrir en Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Maruchan35/EcoRedPuebla/blob/demo-hackatec/plataforma/demo_colab.ipynb)
+[![Abrir en Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Maruchan35/EcoRedPuebla/blob/main/plataforma/demo_colab.ipynb)
 
 `demo_colab.ipynb` clona este repositorio en una máquina de Google Colab, enciende el servidor y lo publica con un
 túnel de Cloudflare (descarga `cloudflared` 2026.10.7 y comprueba su huella SHA-256, igual que `compartir.bat`).
@@ -48,7 +48,7 @@ túnel de Cloudflare (descarga `cloudflared` 2026.10.7 y comprueba su huella SHA
   12 h. Cada ejecución en una máquina nueva cambia la dirección, las contraseñas y los datos de la demo.
 - **Dirección fija:** creen un túnel con nombre en Cloudflare Zero Trust que apunte a `http://localhost:8000` y
   guarden su token en los Secretos de Colab como `CF_TUNNEL_TOKEN`; el cuaderno lo usa si existe.
-- El cuaderno clona la rama `demo-hackatec` (variable `RAMA` de la primera celda); cuando la fusionen, cámbienla a `main`.
+- El cuaderno clona la rama `main` (variable `RAMA` de la primera celda); para probar otra rama, cámbienla ahí.
 - Colab está pensado para cómputo interactivo, no para hospedar sitios, y puede cortar la sesión: úsenlo para la
   presentación y tengan la laptop con `iniciar.bat` + `compartir.bat` como plan B.
 

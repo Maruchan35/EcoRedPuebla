@@ -10,7 +10,7 @@ con nodos de sensores (simulados en el prototipo), reportes ciudadanos y casos a
 
 **Arranque rápido (Windows):** `plataforma\iniciar.bat` → http://localhost:8000/login.html y app ciudadana en http://localhost:8000/app/
 **Enlace público temporal:** `plataforma\compartir.bat` (Cloudflare Quick Tunnel).
-**Demo sin laptop:** [![Abrir en Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Maruchan35/EcoRedPuebla/blob/demo-hackatec/plataforma/demo_colab.ipynb)
+**Demo sin laptop:** [![Abrir en Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Maruchan35/EcoRedPuebla/blob/main/plataforma/demo_colab.ipynb)
 `plataforma/demo_colab.ipynb` enciende la plataforma en Google Colab y la publica con un túnel de Cloudflare.
 
 Contrato para la app ciudadana y el firmware: `plataforma/docs/api.md` y `plataforma/docs/formato-lote.md`.
