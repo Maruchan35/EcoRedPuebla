@@ -5,6 +5,8 @@
 import {
   conectarEventosWS,
   entrarApp,
+  entrarPlataforma,
+  obtenerApiBase,
   enviarReporte,
   leerSesionLocal,
   marcarNotificacionesLeidas,
@@ -828,6 +830,18 @@ function inicializarCuenta() {
       const res = modoRegistro
         ? await registrarCiudadano(nombre, cuenta, clave)
         : await entrarApp(cuenta, clave);
+      // Cuenta del personal (no ciudadana): su lugar es la plataforma de gobierno, con el menú de su rol
+      if (res.usuario.rol !== "ciudadano") {
+        submitBtn.disabled = true;
+        toast("Cuenta del personal", "Abriendo la plataforma de gobierno con tu rol…", "info");
+        if (!obtenerApiBase()) {
+          await entrarPlataforma(cuenta, clave);              // misma contraseña: abre la sesión de la plataforma
+          window.location.href = "/#/resumen";
+        } else {
+          window.location.href = `${obtenerApiBase()}/login.html`;   // la app vive en otro sitio: que entre ahí
+        }
+        return;
+      }
       state.usuario = res.usuario;
       actualizarHeaderUsuario();
       cerrarModalCuenta();
@@ -840,6 +854,7 @@ function inicializarCuenta() {
     } catch (err) {
       errEl.textContent = err.message || "Revisa los datos ingresados.";
       errEl.hidden = false;
+      submitBtn.disabled = false;
     }
   });
 

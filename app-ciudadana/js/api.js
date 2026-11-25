@@ -80,6 +80,11 @@ async function pedirJson(ruta, opts = {}) {
   return payload;
 }
 
+// Cuenta del personal: abre también la sesión de la plataforma (cookie), que es la que usa su panel por rol
+export async function entrarPlataforma(cuenta, clave) {
+  return pedirJson("/api/auth/entrar", { method: "POST", json: { cuenta, clave, origen: "web" } });
+}
+
 export async function entrarApp(cuenta, clave) {
   const res = await pedirJson("/api/auth/entrar", {
     method: "POST",

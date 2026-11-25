@@ -40,6 +40,18 @@
     icons();
   }));
 
+  // La ciudadanía no tiene panel en la plataforma: su lugar es la App Ciudadana, que usa su propia sesión
+  // (token en el navegador). Se abre esa sesión, se cierra la web que no le sirve y se le lleva a la app.
+  async function abrirApp(cuenta, clave) {
+    try {
+      const app = await send("/api/auth/entrar", { cuenta, clave, origen: "app" });
+      localStorage.setItem("ecored_token", app.token);
+      localStorage.setItem("ecored_usuario", JSON.stringify(app.usuario));
+    } catch (e) { /* si no se pudo, la app le pedirá iniciar sesión */ }
+    try { await send("/api/auth/salir", {}); } catch (e) { /* sin sesión web que cerrar */ }
+    location.replace("/app/");
+  }
+
   // ---------- Paso 1 ----------
   form.addEventListener("submit", async e => {
     e.preventDefault();
@@ -51,6 +63,7 @@
     try {
       const r = await send("/api/auth/entrar", { cuenta, clave });
       if (r.usuario && r.usuario.cambiar_clave) { temporal = clave; showChange(r.usuario, false); return; }
+      if (r.usuario && r.usuario.rol === "ciudadano") { await abrirApp(cuenta, clave); return; }
       location.replace(dest);
     } catch (err) { fail(errEl, err.message); $("clave").select(); btn.disabled = false; }
   });
