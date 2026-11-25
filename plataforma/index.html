@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Vigía Atoyac · Plataforma de vigilancia de ríos y barrancas</title>
   <meta name="description" content="Plataforma central de Vigía Atoyac: datos de la red de sensores, reportes ciudadanos, casos y alertas para la cuenca del Alto Atoyac.">
+  <link rel="stylesheet" href="vendor/maplibre/maplibre-gl.css">
   <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
   <link rel="stylesheet" href="css/styles.css">
 </head>
@@ -49,7 +50,9 @@
   <div id="drawerRoot"></div>
   <div class="toasts" id="toasts" role="status" aria-live="polite" aria-atomic="false"></div>
 
-  <!-- Librerías locales (funcionan sin internet, excepto las teselas del mapa) -->
+  <!-- Librerías locales (funcionan sin internet, excepto las teselas del mapa).
+       MapLibre dibuja el mapa 3D; Leaflet queda de respaldo para equipos sin WebGL. -->
+  <script src="vendor/maplibre/maplibre-gl-csp.js"></script>
   <script src="vendor/leaflet/leaflet.js"></script>
   <script src="vendor/leaflet/leaflet-heat.js"></script>
   <script src="vendor/chart.umd.min.js"></script>
@@ -57,6 +60,7 @@
 
   <!-- Aplicación -->
   <script src="js/config.js"></script>
+  <script src="js/cauce.js"></script>
   <script src="js/data.js"></script>
   <script src="js/engine.js"></script>
   <script src="js/api.js"></script>

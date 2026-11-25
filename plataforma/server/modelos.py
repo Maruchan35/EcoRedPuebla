@@ -12,7 +12,13 @@ def nodo_api(f) -> dict:
 
 
 def tramo_api(f) -> dict:
-    return {"id": f["id"], "from": f["desde"], "to": f["hasta"], "name": f["nombre"], "points": json.loads(f["puntos"])}
+    from .motor import largo_km, tiempo_recorrido          # aquí y no arriba: motor no depende de modelos
+    puntos = json.loads(f["puntos"])
+    largo = largo_km(puntos)
+    rapido, lento = tiempo_recorrido(largo)
+    # km de cauce y cuántas horas tarda el agua en recorrerlo (en crecida, en estiaje)
+    return {"id": f["id"], "from": f["desde"], "to": f["hasta"], "name": f["nombre"], "points": puntos,
+            "km": round(largo, 1), "transitH": [round(rapido / 3600000, 2), round(lento / 3600000, 1)]}
 
 
 def barrera_api(f) -> dict:
@@ -20,11 +26,16 @@ def barrera_api(f) -> dict:
             "nivelMax": f["nivel_max"], "lastEmptied": f["ultimo_vaciado"], "lastSync": f["ultima_descarga"]}
 
 
+ESTACION = ("caudal", "turb_sal", "color_sal", "cond_sal", "ph_sal", "lodos", "dp_filtro", "solar")
+
+
 def lectura_api(f) -> dict:
     d = {k: f[k] for k in ("t", "ph", "cond", "turb", "color", "temp", "nivel")}
     d["anom"] = json.loads(f["anom"])
     if f["muestra"]:
         d["sample"] = f["muestra"]
+    if "caudal" in f.keys() and f["caudal"] is not None:           # nodo con estación de tratamiento
+        d.update({k: f[k] for k in ESTACION})
     return d
 
 
@@ -55,10 +66,13 @@ def caso_api(f, completo: bool) -> dict:
 
 
 def usuario_api(f) -> dict:
-    d = {"id": f["id"], "cuenta": f["cuenta"], "nombre": f["nombre"], "rol": f["rol"]}
-    for k in ("activo", "creado", "ultimo_acceso", "demo"):
+    from .seguridad import permisos_de                 # aquí y no arriba: seguridad no depende de modelos
+    d = {"id": f["id"], "cuenta": f["cuenta"], "nombre": f["nombre"], "rol": f["rol"], "permisos": sorted(permisos_de(f))}
+    for k in ("activo", "creado", "ultimo_acceso", "demo", "cambiar_clave"):
         if k in f.keys():
-            d[k] = bool(f[k]) if k in ("activo", "demo") else f[k]
+            d[k] = bool(f[k]) if k in ("activo", "demo", "cambiar_clave") else f[k]
+    if "permisos" in f.keys():
+        d["permisos_propios"] = f["permisos"] is not None and f["rol"] not in ("admin", "ciudadano")
     return d
 
 

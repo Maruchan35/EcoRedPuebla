@@ -31,36 +31,71 @@
     <!-- ===== Formulario ===== -->
     <section class="login-panel" aria-labelledby="loginTitle">
       <div class="login-card">
-        <h2 id="loginTitle">Iniciar sesión</h2>
-        <p class="muted">Acceso para el personal de las dependencias y los Tecnológicos.</p>
+        <!-- Paso 1: cuenta y contraseña -->
+        <div id="stepLogin" class="login-step">
+          <h2 id="loginTitle">Iniciar sesión</h2>
+          <p class="muted">Acceso para el personal de las dependencias y los Tecnológicos. Cada cuenta ve solo los módulos que le asignó Administración.</p>
 
-        <div class="banner" id="notice" role="status" hidden></div>
+          <div class="banner" id="notice" role="status" hidden></div>
 
-        <form id="loginForm" class="form-grid" novalidate>
-          <div class="field">
-            <label for="cuenta">Correo o teléfono</label>
-            <input id="cuenta" name="cuenta" type="text" autocomplete="username" inputmode="email" autocapitalize="none" spellcheck="false" maxlength="120" required>
-          </div>
-          <div class="field">
-            <label for="clave">Contraseña</label>
-            <div class="pass-wrap">
-              <input id="clave" name="clave" type="password" autocomplete="current-password" maxlength="128" required>
-              <button class="btn btn-ghost btn-icon" type="button" id="showPass" aria-label="Mostrar contraseña" aria-pressed="false"><i data-lucide="eye" aria-hidden="true"></i></button>
+          <form id="loginForm" class="form-grid" novalidate>
+            <div class="field">
+              <label for="cuenta">Correo o teléfono</label>
+              <input id="cuenta" name="cuenta" type="text" autocomplete="username" inputmode="email" autocapitalize="none" spellcheck="false" maxlength="120" required>
             </div>
-          </div>
-          <p class="form-error" id="loginErr" role="alert" hidden></p>
-          <button class="btn btn-primary btn-block" type="submit" id="loginBtn"><i data-lucide="log-in" aria-hidden="true"></i><span>Entrar</span></button>
-        </form>
+            <div class="field">
+              <label for="clave">Contraseña</label>
+              <div class="pass-wrap">
+                <input id="clave" name="clave" type="password" autocomplete="current-password" maxlength="128" required>
+                <button class="btn btn-ghost btn-icon" type="button" data-show="clave" aria-label="Mostrar contraseña" aria-pressed="false"><i data-lucide="eye" aria-hidden="true"></i></button>
+              </div>
+            </div>
+            <p class="form-error" id="loginErr" role="alert" hidden></p>
+            <button class="btn btn-primary btn-block" type="submit" id="loginBtn"><i data-lucide="log-in" aria-hidden="true"></i><span>Entrar</span></button>
+          </form>
 
-        <!-- Solo se llena en modo demo y desde la computadora del servidor -->
-        <section class="demo-box" id="demoBox" aria-labelledby="demoTitle" hidden>
-          <h3 id="demoTitle">Cuentas de demostración</h3>
-          <p class="small muted">Un clic entra con ese rol. Solo aparecen en la computadora donde corre el servidor.</p>
-          <div class="demo-accounts" id="demoList"></div>
-        </section>
+          <details class="login-help">
+            <summary>¿Olvidaste tu contraseña o no tienes cuenta?</summary>
+            <p class="small">Las cuentas del personal las crea Administración. Pídele una <strong>contraseña temporal</strong>: al entrar con ella, el sistema te pide crear la tuya.
+              Después de 5 intentos fallidos la cuenta se bloquea un minuto.</p>
+          </details>
 
-        <p class="small login-alt"><a href="./">Ver el mapa público sin iniciar sesión</a></p>
-        <p class="small login-alt"><a href="/app/">¿Vas a reportar un problema? Abrir App Ciudadana</a></p>
+          <p class="small login-alt"><a href="./">Ver el mapa público sin iniciar sesión</a></p>
+          <p class="small login-alt"><a href="/app/">¿Vas a reportar un problema? Abrir App Ciudadana</a></p>
+        </div>
+
+        <!-- Paso 2: la cuenta entró con una contraseña temporal y debe crear la suya -->
+        <div id="stepChange" class="login-step" hidden>
+          <h2 id="changeTitle" tabindex="-1">Crea tu contraseña</h2>
+          <p class="muted" id="changeIntro">Entraste con una contraseña temporal. Antes de continuar, crea una que solo tú conozcas.</p>
+          <form id="changeForm" class="form-grid" novalidate>
+            <input type="text" id="changeUser" autocomplete="username" hidden>
+            <div class="field" id="actualField" hidden>
+              <label for="clActual">Contraseña temporal</label>
+              <div class="pass-wrap">
+                <input id="clActual" type="password" autocomplete="current-password" maxlength="128">
+                <button class="btn btn-ghost btn-icon" type="button" data-show="clActual" aria-label="Mostrar contraseña" aria-pressed="false"><i data-lucide="eye" aria-hidden="true"></i></button>
+              </div>
+            </div>
+            <div class="field">
+              <label for="clNueva">Contraseña nueva</label>
+              <div class="pass-wrap">
+                <input id="clNueva" type="password" autocomplete="new-password" minlength="8" maxlength="128" aria-describedby="clNuevaHelp" required>
+                <button class="btn btn-ghost btn-icon" type="button" data-show="clNueva" aria-label="Mostrar contraseña" aria-pressed="false"><i data-lucide="eye" aria-hidden="true"></i></button>
+              </div>
+              <span class="help" id="clNuevaHelp">Mínimo 8 caracteres, distinta de la temporal y de tu correo o teléfono.</span>
+            </div>
+            <div class="pass-meter" aria-hidden="true"><span id="meterBar"></span></div>
+            <p class="small muted" id="meterText" aria-live="polite"></p>
+            <div class="field">
+              <label for="clRepite">Repite la contraseña nueva</label>
+              <input id="clRepite" type="password" autocomplete="new-password" maxlength="128" required>
+            </div>
+            <p class="form-error" id="changeErr" role="alert" hidden></p>
+            <button class="btn btn-primary btn-block" type="submit" id="changeBtn"><i data-lucide="shield-check" aria-hidden="true"></i><span>Guardar y entrar</span></button>
+            <button class="btn btn-ghost btn-block" type="button" id="changeCancel"><i data-lucide="log-out" aria-hidden="true"></i><span>Salir sin cambiarla</span></button>
+          </form>
+        </div>
       </div>
     </section>
   </main>

@@ -22,6 +22,27 @@ t,ph,cond,turb,color,temp,nivel,bateria,muestra,hash
 | `muestra` | no | Folio del frasco cuando el carrusel tomó muestra en esa lectura (por ejemplo `M-0021`). |
 | `hash` | no | Huella encadenada (ver abajo). |
 
+### Columnas de la estación piloto (opcionales)
+El nodo que tiene estación de tratamiento a su lado (hoy N3, estación EP-1) agrega estas columnas antes de `hash`:
+
+```
+t,ph,cond,turb,color,temp,nivel,bateria,muestra,caudal,turb_sal,color_sal,cond_sal,ph_sal,lodos,dp_filtro,solar,hash
+```
+
+| Columna | Unidad | Qué es | Rango válido |
+|---|---|---|---|
+| `caudal` | L/s | Agua que entra a la estación desde la captación | 0–50 |
+| `turb_sal` | NTU | Turbidez del agua tratada, a la salida del humedal | 0–10,000 |
+| `color_sal` | m⁻¹ | Color (absorción a 620 nm) a la salida | 0–1,000 |
+| `cond_sal` | µS/cm | Conductividad a la salida | 0–100,000 |
+| `ph_sal` | | pH a la salida | 0–14 |
+| `lodos` | % | Llenado del sedimentador; baja de golpe cuando se purga | 0–100 |
+| `dp_filtro` | kPa | Presión diferencial de los filtros; a 24 kPa toca retrolavado | 0–500 |
+| `solar` | W | Potencia que entrega el panel solar | 0–2,000 |
+
+Con ellas la plataforma calcula agua tratada al día, remoción por parámetro, sólidos retenidos, energía
+y la bitácora de mantenimiento. Los nodos sin estación no las escriben.
+
 - Se aceptan los alias `fecha_hora`, `conductividad`, `turbidez`, `temperatura`, `folio`, `huella`.
 - Separador coma o punto y coma (con punto y coma se acepta coma decimal, como exporta Excel en español).
 - Una lectura cada 10 minutos; una por minuto mientras el nodo detecta una anomalía.
@@ -44,7 +65,7 @@ hash_i = SHA-256( hash_{i-1} + "|" + "t,ph,cond,turb,color,temp,nivel" )   en he
 La cadena entre comillas es el texto de esas siete columnas **tal cual quedó escrito en el archivo**,
 unidas con comas. Si alguien cambia una fila, la plataforma marca el lote como «Alterado desde la fila N»
 y los casos que salgan de él llevan una advertencia. Si la primera fila no coincide, el archivo no es de
-ese nodo y la carga se rechaza.
+ese nodo y la carga se rechaza. Las columnas de la estación piloto todavía no entran en la huella.
 
 En el ESP32 con Arduino se puede calcular con `mbedtls/sha256.h`, que viene con el core. Implementación
 de referencia en Python: `server/lotes.py` (`huella` y `a_csv`).
@@ -52,3 +73,4 @@ de referencia en Python: `server/lotes.py` (`huella` y `a_csv`).
 ## Archivo de ejemplo
 En **Recolección → Archivo de ejemplo** se descarga un CSV con este formato exacto y valores simulados
 (normal, con descarga textil o con crecida). Sirve para comparar byte por byte con lo que escribe el nodo.
+El de N3 trae también las columnas de la estación piloto.

@@ -28,7 +28,17 @@ CREATE TABLE IF NOT EXISTS usuarios (
   activo        INTEGER NOT NULL DEFAULT 1,
   demo          INTEGER NOT NULL DEFAULT 0,
   creado        INTEGER NOT NULL,
-  ultimo_acceso INTEGER
+  ultimo_acceso INTEGER,
+  permisos      TEXT,                          -- JSON con los módulos de esta persona; NULL = los de su rol
+  cambiar_clave INTEGER NOT NULL DEFAULT 0     -- 1 = entró con contraseña temporal y debe cambiarla
+);
+CREATE TABLE IF NOT EXISTS accesos (           -- bitácora de inicios de sesión (correctos y fallidos)
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  t          INTEGER NOT NULL,
+  usuario_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+  cuenta     TEXT NOT NULL,
+  ip         TEXT,
+  resultado  TEXT NOT NULL                     -- ok | clave | desactivada | bloqueo | salida
 );
 CREATE TABLE IF NOT EXISTS sesiones (
   token_hash TEXT PRIMARY KEY,                 -- SHA-256 del token; el token nunca se guarda
@@ -60,7 +70,12 @@ CREATE TABLE IF NOT EXISTS lecturas (
   id INTEGER PRIMARY KEY AUTOINCREMENT, nodo TEXT NOT NULL, t INTEGER NOT NULL,
   ph REAL, cond REAL, turb REAL, color REAL, temp REAL, nivel REAL,
   anom TEXT NOT NULL DEFAULT '[]', muestra TEXT, lote INTEGER,
+  -- Solo en nodos con estación de tratamiento (sensores de salida y del proceso); NULL en los demás
+  caudal REAL, turb_sal REAL, color_sal REAL, cond_sal REAL, ph_sal REAL, lodos REAL, dp_filtro REAL, solar REAL,
   UNIQUE (nodo, t)
+);
+CREATE TABLE IF NOT EXISTS vaciados (          -- cada vez que la cuadrilla vacía una barrera
+  id INTEGER PRIMARY KEY AUTOINCREMENT, barrera TEXT NOT NULL, t INTEGER NOT NULL, kg REAL NOT NULL, quien TEXT
 );
 CREATE TABLE IF NOT EXISTS reportes (
   id TEXT PRIMARY KEY, usuario_id INTEGER, cat TEXT NOT NULL,
@@ -86,7 +101,16 @@ CREATE TABLE IF NOT EXISTS ajustes (clave TEXT PRIMARY KEY, valor TEXT NOT NULL)
 CREATE INDEX IF NOT EXISTS ix_lecturas_nodo_t ON lecturas (nodo, t);
 CREATE INDEX IF NOT EXISTS ix_reportes_t ON reportes (t);
 CREATE INDEX IF NOT EXISTS ix_sesiones_usuario ON sesiones (usuario_id);
+CREATE INDEX IF NOT EXISTS ix_accesos_t ON accesos (t);
+CREATE INDEX IF NOT EXISTS ix_vaciados_t ON vaciados (t);
+CREATE INDEX IF NOT EXISTS ix_casos_t ON casos (t);
 """
+
+# Columnas agregadas después de la primera versión: las bases que ya existían las reciben al arrancar
+_COLUMNAS_NUEVAS = {
+    "usuarios": {"permisos": "TEXT", "cambiar_clave": "INTEGER NOT NULL DEFAULT 0"},
+    "lecturas": {c: "REAL" for c in ("caudal", "turb_sal", "color_sal", "cond_sal", "ph_sal", "lodos", "dp_filtro", "solar")},
+}
 
 
 def ahora() -> int:
@@ -101,6 +125,11 @@ def conectar() -> sqlite3.Connection:
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA journal_mode=WAL")
     con.execute("PRAGMA foreign_keys=ON")
+    for tabla, columnas in _COLUMNAS_NUEVAS.items():           # antes del esquema: sus índices pueden usarlas
+        existentes = {f["name"] for f in con.execute(f"PRAGMA table_info({tabla})")}
+        for nombre, tipo in columnas.items():
+            if existentes and nombre not in existentes:
+                con.execute(f"ALTER TABLE {tabla} ADD COLUMN {nombre} {tipo}")
     con.executescript(ESQUEMA)
     return con
 

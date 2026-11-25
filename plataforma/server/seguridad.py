@@ -1,11 +1,13 @@
-"""Contraseñas, sesiones y roles.
+"""Contraseñas, sesiones, roles y permisos.
 
 - Las contraseñas se guardan con PBKDF2-HMAC-SHA256 y sal aleatoria (biblioteca estándar).
 - La sesión es un token aleatorio; en la base solo se guarda su SHA-256.
 - La web lo recibe en una cookie HttpOnly; la app móvil lo manda como `Authorization: Bearer`.
+- Cada rol trae un juego de permisos por omisión; Administración puede ajustarlo por persona.
 """
 import hashlib
 import hmac
+import json
 import re
 import secrets
 import time
@@ -26,7 +28,56 @@ ROLES = {
     "admin": {"label": "Administración", "deps": ["ambiental", "limpia", "pc", "brigadas"]},
 }
 PERSONAL = {"ambiental", "limpia", "pc", "tec", "admin"}      # todo menos ciudadanía
-RECOLECCION = {"pc", "tec", "admin"}                          # quienes visitan nodos y suben lotes
+
+# Módulos de la plataforma que se pueden dar o quitar a cada persona
+PERMISOS = {
+    "casos": "Ver y atender los casos de su dependencia",
+    "reportes": "Ver los reportes de la app con texto y foto",
+    "validar": "Validar o descartar reportes de la app",
+    "nodos": "Consultar las lecturas de los nodos",
+    "recoleccion": "Subir los archivos de los nodos (visitas de campo)",
+    "barreras": "Registrar llenado y vaciado de barreras",
+    "prediccion": "Ver la predicción de riesgo",
+    "usuarios": "Administrar cuentas, permisos y bitácora de accesos",
+    "config": "Cambiar umbrales y usar las simulaciones de la demo",
+}
+# Estos dos van solo con el rol Administración: dárselos a otra persona sería hacerla administradora sin decirlo
+SOLO_ADMIN = {"usuarios", "config"}
+PERMISOS_ROL = {
+    "ciudadano": set(),
+    "ambiental": {"casos", "reportes", "validar", "nodos", "prediccion"},
+    "limpia": {"casos", "reportes", "validar", "barreras"},
+    "pc": {"casos", "validar", "nodos", "recoleccion", "barreras", "prediccion"},
+    "tec": {"nodos", "recoleccion"},
+    "admin": set(PERMISOS),
+}
+
+
+def permisos_de(u) -> set:
+    """Permisos efectivos: los propios si Administración los ajustó, si no los del rol."""
+    rol = u["rol"]
+    if rol == "admin":
+        return set(PERMISOS)
+    if rol not in PERSONAL:
+        return set()
+    propios = u["permisos"] if "permisos" in u.keys() else None
+    if propios is not None:
+        try:
+            return {p for p in json.loads(propios) if p in PERMISOS and p not in SOLO_ADMIN}
+        except (ValueError, TypeError):
+            pass
+    return set(PERMISOS_ROL.get(rol, ()))
+
+
+def limpiar_permisos(lista) -> list:
+    """Valida una lista enviada por Administración. Lanza ValueError si trae algo que no se puede otorgar."""
+    pedidos = set(lista or [])
+    raros = pedidos - set(PERMISOS)
+    if raros:
+        raise ValueError("Permiso desconocido: " + ", ".join(sorted(raros)) + ".")
+    if pedidos & SOLO_ADMIN:
+        raise ValueError("Administrar cuentas y la configuración van solo con el rol Administración.")
+    return sorted(pedidos)
 
 _RE_CORREO = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _RE_TEL = re.compile(r"^\d{10}$")
@@ -95,7 +146,7 @@ def usuario_de_token(con, token: str):
     if not token:
         return None
     return con.execute(
-        """SELECT u.id, u.cuenta, u.nombre, u.rol, u.demo FROM sesiones s JOIN usuarios u ON u.id = s.usuario_id
+        """SELECT u.id, u.cuenta, u.nombre, u.rol, u.demo, u.permisos, u.cambiar_clave FROM sesiones s JOIN usuarios u ON u.id = s.usuario_id
            WHERE s.token_hash = ? AND s.expira > ? AND u.activo = 1""", (_huella(token), ahora())).fetchone()
 
 

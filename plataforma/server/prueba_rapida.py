@@ -3,11 +3,12 @@
     1) En una terminal:   python -m server
     2) En otra terminal:  python -m server.prueba_rapida
 
-Usa las cuentas de demostración (lee la contraseña de datos/cuentas_demo.txt) y al terminar
+Usa las cuentas de demostración (lee cada cuenta y su contraseña de datos/cuentas_demo.txt) y al terminar
 deja los datos de demostración en su punto de partida. No correr contra un servidor con datos reales.
 """
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -76,10 +77,23 @@ def comprobar(nombre, condicion, detalle=""):
         print("  FALLA", nombre, "->", detalle)
 
 
+def leer_cuentas() -> dict:
+    """{rol: (cuenta, contraseña)} de datos/cuentas_demo.txt: una línea «rol cuenta contraseña nombre» por cuenta,
+    o el formato anterior con una sola contraseña para todas («Contraseña: …» y líneas «cuenta rol»)."""
+    texto = (DATOS / "cuentas_demo.txt").read_text(encoding="utf-8")
+    roles, comun, cuentas = ("admin", "ambiental", "limpia", "pc", "tec", "ciudadano"), re.search(r"^Contraseña: (\S+)", texto, re.M), {}
+    for p in (linea.split() for linea in texto.splitlines()):
+        if len(p) >= 3 and p[0] in roles and "@" in p[1]:
+            cuentas.setdefault(p[0], (p[1], p[2]))
+        elif len(p) == 2 and "@" in p[0] and p[1] in roles and comun:
+            cuentas.setdefault(p[1], (p[0], comun.group(1)))
+    return cuentas
+
+
 def main():
-    clave = (DATOS / "cuentas_demo.txt").read_text(encoding="utf-8").split("Contraseña: ")[1].split()[0]
+    cuentas = leer_cuentas()
     admin = Cliente()
-    c, _ = admin.entrar("admin@vigia.demo", clave)
+    c, _ = admin.entrar(*cuentas["admin"])
     comprobar("Administración inicia sesión", c == 200, c)
     admin.pedir("POST", "/api/demo/reiniciar", {})
 
@@ -94,21 +108,33 @@ def main():
     comprobar("la carga por lote pide sesión", pub.pedir("POST", "/api/sincronizacion", form={"nodo": "N3"}, archivos={"archivo": ("a.csv", b"t,ph\n", "text/csv")})[0] == 401)
     comprobar("la base de datos no se sirve como archivo", pub.pedir("GET", "/server/datos/vigia.db", crudo=True)[0] == 404)
     comprobar("los archivos de la web sí se sirven", pub.pedir("GET", "/js/api.js", crudo=True)[0] == 200)
+    c, est = pub.pedir("GET", "/api/estacion")
+    comprobar("estación piloto pública: trata agua y remueve turbidez", c == 200 and est["kpis"]["m3Dia"] > 0
+              and est["kpis"]["remocion"]["turb"] > 0.6 and len(est["serie"]) > 24, est.get("kpis") if c == 200 else c)
+    c, se = pub.pedir("GET", "/api/series?nodo=N5&dias=30&agrupar=dia")
+    comprobar("serie diaria de 30 días de un nodo", c == 200 and 25 <= len(se["puntos"]) <= 31 and "turb" in se["puntos"][-1], len(se.get("puntos", [])) if c == 200 else c)
+    comprobar("el índice diario cubre casi 90 días por tramo", all(len(v) >= 75 for v in e["dailyIndex"].values()) and len(e["dailyIndex"]) == 5,
+              {k: len(v) for k, v in e["dailyIndex"].items()})
+    comprobar("basura retirada sale de los vaciados registrados", e["basura"]["kg90"] > e["basura"]["kg30"] > 0, e.get("basura"))
+    c, tr = pub.pedir("GET", "/api/tramos")
+    comprobar("cada tramo trae sus km de cauce y cuánto tarda el agua en recorrerlo",
+              c == 200 and len(tr) == 5 and all(x["km"] > 0 and 0 < x["transitH"][0] < x["transitH"][1] for x in tr)
+              and 60 <= sum(x["km"] for x in tr) <= 70, [(x["id"], x["km"], x["transitH"]) for x in tr] if c == 200 else c)
     c, m = pub.pedir("GET", "/api/metricas")
     comprobar("métricas públicas", c == 200 and m["nodos"]["total"] == 6 and m["reportes"]["total"] >= 36, m if c == 200 else c)
 
     print("\nInicio de sesión y permisos")
-    comprobar("contraseña incorrecta se rechaza", pub.entrar("pc@vigia.demo", "no-es-la-clave")[0] == 401)
+    comprobar("contraseña incorrecta se rechaza", pub.entrar(cuentas["pc"][0], "no-es-la-clave")[0] == 401)
     comprobar("cuenta inexistente responde igual", pub.entrar("nadie@vigia.demo", "no-es-la-clave")[0] == 401)
     pc = Cliente()
-    c, _, cab = pc.pedir("POST", "/api/auth/entrar", {"cuenta": "pc@vigia.demo", "clave": clave}, crudo=True)
+    c, _, cab = pc.pedir("POST", "/api/auth/entrar", {"cuenta": cuentas["pc"][0], "clave": cuentas["pc"][1]}, crudo=True)
     galleta = cab.get("Set-Cookie", "")
     comprobar("Protección Civil inicia sesión con cookie HttpOnly y SameSite", c == 200 and "HttpOnly" in galleta and "samesite=lax" in galleta.lower(), galleta[:40])
-    comprobar("la respuesta web no expone el token", b"token" not in pc.pedir("POST", "/api/auth/entrar", {"cuenta": "pc@vigia.demo", "clave": clave}, crudo=True)[1])
+    comprobar("la respuesta web no expone el token", b"token" not in pc.pedir("POST", "/api/auth/entrar", {"cuenta": cuentas["pc"][0], "clave": cuentas["pc"][1]}, crudo=True)[1])
     c, y = pc.pedir("GET", "/api/auth/yo")
     comprobar("/api/auth/yo devuelve el rol", c == 200 and y["usuario"]["rol"] == "pc", y)
     sin_cabecera = Cliente(cabecera=False)
-    sin_cabecera.entrar("pc@vigia.demo", clave)
+    sin_cabecera.entrar(*cuentas["pc"])
     comprobar("una petición con cookie pero sin la cabecera propia se rechaza (CSRF)", sin_cabecera.pedir("POST", "/api/auth/salir", {})[0] == 403)
     comprobar("Protección Civil no administra usuarios", pc.pedir("GET", "/api/usuarios")[0] == 403)
     c, e = pc.pedir("GET", "/api/estado")
@@ -125,7 +151,8 @@ def main():
     app.token = r.get("token")
     comprobar("contraseña corta se rechaza", pub.pedir("POST", "/api/auth/registro", {"nombre": "X Y", "cuenta": "otra@correo.test", "clave": "corta"})[0] == 422)
     comprobar("cuenta repetida se rechaza", pub.pedir("POST", "/api/auth/registro", {"nombre": "X Y", "cuenta": cuenta, "clave": "clave-de-prueba-1"})[0] == 409)
-    c, rep = app.pedir("POST", "/api/reportes", form={"cat": "Agua de color", "lat": 19.1840, "lng": -98.3060, "texto": "Prueba: agua azul"},
+    # En la orilla del río, sobre el tramo Huejotzingo → Xoxtla (a ~1 km del nodo N3)
+    c, rep = app.pedir("POST", "/api/reportes", form={"cat": "Agua de color", "lat": 19.18717, "lng": -98.30329, "texto": "Prueba: agua azul"},
                        archivos={"foto": ("foto.png", PNG, "image/png")})
     comprobar("reporte con foto desde la app", c == 201 and rep["photo"] and rep["mine"] and rep["status"] == "Recibido", rep)
     folio = rep["id"] if c == 201 else "R-0"
@@ -145,7 +172,10 @@ def main():
 
     print("\nRecolección: archivo de la microSD con una descarga")
     c, csv_txt, _ = pc.pedir("GET", "/api/sincronizacion/ejemplo?nodo=N3&evento=descarga&horas=8", crudo=True)
-    comprobar("archivo de ejemplo con huella", c == 200 and csv_txt.startswith(b"t,ph,cond,turb,color,temp,nivel,bateria,muestra,hash"), c)
+    encabezado = csv_txt.split(b"\n", 1)[0] if c == 200 else b""
+    comprobar("archivo de ejemplo con huella", c == 200 and encabezado.startswith(b"t,ph,cond,turb,color,temp,nivel,bateria,muestra,")
+              and encabezado.endswith(b",hash"), encabezado[:120])
+    comprobar("N3 trae además las columnas de la estación piloto", b",caudal,turb_sal,color_sal,cond_sal,ph_sal,lodos,dp_filtro,solar," in encabezado, encabezado)
     comprobar("la ciudadanía no puede subir lotes", app.pedir("POST", "/api/sincronizacion", form={"nodo": "N3"}, archivos={"archivo": ("n3.csv", csv_txt, "text/csv")})[0] == 403)
     comprobar("un archivo sin columnas válidas se rechaza", pc.pedir("POST", "/api/sincronizacion", form={"nodo": "N3"}, archivos={"archivo": ("x.csv", b"hola,mundo\n1,2\n", "text/csv")})[0] == 422)
     c, lote = pc.pedir("POST", "/api/sincronizacion", form={"nodo": "N3", "limpieza": "true", "calibracion": "true"}, archivos={"archivo": ("N3.csv", csv_txt, "text/csv")})
@@ -164,10 +194,16 @@ def main():
     c, cruzado = pc.pedir("POST", "/api/sincronizacion", form={"nodo": "N6"}, archivos={"archivo": ("N3.csv", csv_txt, "text/csv")})
     comprobar("el archivo de un nodo subido a otro nodo se rechaza", c == 422, cruzado)
     comprobar("Protección Civil no puede actuar sobre un caso de Autoridad ambiental", pc.pedir("PATCH", f"/api/casos/{caso_id}", {"accion": "atender"})[0] == 403)
+    # Los datos llegan por lotes con huecos: un archivo corto no debe hacer que la estación "trate" menos agua al día
+    c, est2 = pub.pedir("GET", "/api/estacion")
+    k2 = est2.get("kpis") or {}
+    comprobar("tras un lote corto, los indicadores diarios de la estación siguen siendo de un día completo",
+              c == 200 and 8 <= (k2.get("m3Dia") or 0) <= 40 and (k2.get("energiaWhDia") or 0) > 300 and (k2.get("solidosKgDia") or 0) > 0.4,
+              {k: k2.get(k) for k in ("m3Dia", "energiaWhDia", "solidosKgDia", "diaBase")})
 
     print("\nAutoridad ambiental: caso con evidencia")
     amb = Cliente()
-    amb.entrar("ambiental@vigia.demo", clave)
+    amb.entrar(*cuentas["ambiental"])
     c, caso = amb.pedir("GET", f"/api/casos/{caso_id}")
     comprobar("el caso es de tipo textil, con muestra y tramo T2 por confirmar",
               c == 200 and caso.get("estimate") == "Textil" and caso.get("sample") and caso["tramo"] == "T2" and caso["locPending"], caso)
@@ -201,11 +237,45 @@ def main():
 
     print("\nAdministración de usuarios")
     c, nuevo = admin.pedir("POST", "/api/usuarios", {"nombre": "Inspectora de prueba", "cuenta": f"insp{int(time.time())}@gob.test", "rol": "ambiental", "clave": "clave-temporal-1"})
-    comprobar("alta de personal", c == 201 and nuevo["rol"] == "ambiental", nuevo)
+    comprobar("alta de personal con contraseña temporal", c == 201 and nuevo["rol"] == "ambiental" and nuevo["cambiar_clave"] is True, nuevo)
+    comprobar("la cuenta nueva trae los permisos de su rol", c == 201 and nuevo["permisos"] == ["casos", "nodos", "prediccion", "reportes", "validar"]
+              and nuevo["permisos_propios"] is False, nuevo.get("permisos"))
     insp = Cliente()
-    comprobar("la cuenta nueva puede entrar", insp.entrar(nuevo["cuenta"], "clave-temporal-1")[0] == 200)
+    c, r = insp.entrar(nuevo["cuenta"], "clave-temporal-1")
+    comprobar("la cuenta nueva puede entrar y se le pide cambiar la contraseña", c == 200 and r["usuario"]["cambiar_clave"] is True, r)
+    c, _, cab = insp.pedir("GET", "/api/estado", crudo=True)
+    comprobar("con contraseña temporal no ve datos hasta cambiarla", c == 403 and cab.get("X-VA-Accion") == "cambiar-clave", c)
+    comprobar("pero sí puede preguntar quién es", insp.pedir("GET", "/api/auth/yo")[1]["usuario"]["cambiar_clave"] is True)
+    comprobar("la nueva no puede ser igual a la temporal", insp.pedir("POST", "/api/auth/clave", {"actual": "clave-temporal-1", "nueva": "clave-temporal-1"})[0] == 422)
     comprobar("cambia su contraseña", insp.pedir("POST", "/api/auth/clave", {"actual": "clave-temporal-1", "nueva": "otra-clave-larga-2"})[0] == 200)
+    comprobar("después del cambio ya entra a los datos", insp.pedir("GET", "/api/estado")[0] == 200)
     comprobar("la contraseña anterior deja de servir", Cliente().entrar(nuevo["cuenta"], "clave-temporal-1")[0] == 401)
+
+    print("\nPermisos por persona")
+    c, cat = admin.pedir("GET", "/api/permisos")
+    comprobar("catálogo de permisos para Administración", c == 200 and "casos" in cat["permisos"] and cat["solo_admin"] == ["config", "usuarios"], cat)
+    comprobar("el catálogo no es para el personal", pc.pedir("GET", "/api/permisos")[0] == 403)
+    c, u2 = admin.pedir("PATCH", f"/api/usuarios/{nuevo['id']}", {"permisos": ["nodos"]})
+    comprobar("Administración le deja solo Nodos", c == 200 and u2["permisos"] == ["nodos"] and u2["permisos_propios"] is True, u2)
+    c, e = insp.pedir("GET", "/api/estado")
+    comprobar("sin el permiso de casos ya no recibe casos completos", c == 200 and all("summary" not in k for k in e["cases"]))
+    comprobar("ni puede validar reportes", insp.pedir("PATCH", f"/api/reportes/{folio}", {"estado": "Validado"})[0] == 403)
+    comprobar("no se puede dar Usuarios a alguien que no es Administración",
+              admin.pedir("PATCH", f"/api/usuarios/{nuevo['id']}", {"permisos": ["nodos", "usuarios"]})[0] == 422)
+    comprobar("un permiso inventado se rechaza", admin.pedir("PATCH", f"/api/usuarios/{nuevo['id']}", {"permisos": ["superpoder"]})[0] == 422)
+    c, u3 = admin.pedir("PATCH", f"/api/usuarios/{nuevo['id']}", {"permisos_del_rol": True})
+    comprobar("volver a los permisos del rol", c == 200 and "casos" in u3["permisos"] and u3["permisos_propios"] is False, u3)
+    c, tec = admin.pedir("POST", "/api/usuarios", {"nombre": "Brigadista", "cuenta": f"brig{int(time.time())}@gob.test", "rol": "tec",
+                                                    "clave": "clave-temporal-3", "permisos": ["nodos", "recoleccion", "barreras"]})
+    comprobar("alta con permisos propios desde el principio", c == 201 and tec["permisos"] == ["barreras", "nodos", "recoleccion"] and tec["permisos_propios"], tec)
+    c, log = admin.pedir("GET", "/api/accesos")
+    comprobar("la bitácora registra entradas correctas y fallidas",
+              c == 200 and any(a["cuenta"] == nuevo["cuenta"] and a["resultado"] == "ok" for a in log)
+              and any(a["cuenta"] == nuevo["cuenta"] and a["resultado"] == "clave" for a in log), log[:3] if c == 200 else c)
+    comprobar("la bitácora es solo de Administración", pc.pedir("GET", "/api/accesos")[0] == 403)
+    comprobar("ya no existe la entrada de un clic", pub.pedir("POST", "/api/auth/demo", {"cuenta": cuentas["admin"][0]})[0] in (404, 405))
+    comprobar("/api/auth/yo ya no lista cuentas de demostración", "cuentas_demo" not in pub.pedir("GET", "/api/auth/yo")[1])
+    print("\nDesactivar cuentas")
     comprobar("desactivar la cuenta", admin.pedir("PATCH", f"/api/usuarios/{nuevo['id']}", {"activo": False})[1].get("activo") is False)
     comprobar("una cuenta desactivada pierde la sesión al instante", insp.pedir("GET", "/api/auth/yo")[1]["usuario"] is None)
     comprobar("y ya no puede entrar", Cliente().entrar(nuevo["cuenta"], "otra-clave-larga-2")[0] == 401)
@@ -232,9 +302,12 @@ def main():
     comprobar("cerrar sesión", pc.pedir("POST", "/api/auth/salir", {})[0] == 200 and pc.pedir("GET", "/api/auth/yo")[1]["usuario"] is None)
 
     print("\nLímite de intentos")
-    codigos = [Cliente().entrar("limpia@vigia.demo", "mala-%d" % i)[0] for i in range(6)]
+    # Cuenta nueva en cada corrida: así repetir la prueba enseguida no hereda el bloqueo de la corrida anterior
+    cuenta_b = f"bloqueo{int(time.time() * 1000)}@gob.test"
+    admin.pedir("POST", "/api/usuarios", {"nombre": "Prueba de bloqueo", "cuenta": cuenta_b, "rol": "limpia", "clave": "clave-buena-123"})
+    codigos = [Cliente().entrar(cuenta_b, "mala-%d" % i)[0] for i in range(6)]
     comprobar("al quinto fallo se bloquea un minuto", codigos[:5] == [401] * 5 and codigos[5] == 429, codigos)
-    comprobar("durante el bloqueo ni la contraseña correcta entra", Cliente().entrar("limpia@vigia.demo", clave)[0] == 429)
+    comprobar("durante el bloqueo ni la contraseña correcta entra", Cliente().entrar(cuenta_b, "clave-buena-123")[0] == 429)
 
     admin.pedir("POST", "/api/demo/reiniciar", {})
     print(f"\n{ok} comprobaciones correctas, {fallos} con falla.")

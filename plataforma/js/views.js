@@ -16,10 +16,9 @@
   // ---------- Ayudas compartidas ----------
   const lastReading = id => VA.map.lastOf(id);
   const role = () => VA.state.role;
-  const isAdmin = () => role() === "admin";
   const demoOn = () => MOCK || VA.session.demo;
-  const canSeeCases = () => C.roles[role()].deps.length > 0;
-  const visibleCases = () => S().cases.filter(c => C.roles[role()].deps.includes(c.dep));
+  const canSeeCases = () => VA.can("casos") && C.roles[role()].deps.length > 0;
+  const visibleCases = () => canSeeCases() ? S().cases.filter(c => C.roles[role()].deps.includes(c.dep)) : [];
   const openCases = list => list.filter(c => c.status !== "Cerrado");
   const caseType = c => C.tiposCaso[c.type];
   const fail = (err, title = "No se pudo guardar") => toast("warn", title, err && err.message ? err.message : String(err));
@@ -43,9 +42,9 @@
     return `<div class="card kpi ${tone}"><div class="kpi-label">${icon(ic)}${esc(label)}</div>
       <div class="kpi-value">${value}</div>${note ? `<div class="kpi-note">${note}</div>` : ""}</div>`;
   }
-  // Botones de simulación: solo Administración, y solo con datos de demostración
+  // Botones de simulación: solo con el permiso de configuración, y solo con datos de demostración
   function demoBar() {
-    if (!isAdmin() || !demoOn()) return "";
+    if (!VA.can("config") || !demoOn()) return "";
     const b = (a, ic, label) => `<button class="btn btn-secondary" type="button" data-demo="${a}">${icon(ic)}${label}</button>`;
     return `<div class="card demo-panel no-print"><div class="card-body demo-row">
       <strong>Modo demo</strong>
@@ -84,65 +83,231 @@
   // =========================================================
   // RESUMEN
   // =========================================================
+  // ---------- Ayudas del centro de operaciones ----------
+  const diaLocal = t => Math.floor((t - 6 * 3600000) / DAY);            // día en hora del centro
+  // Cuántos elementos cayeron en cada uno de los últimos `dias` días (el último es hoy)
+  function porDia(items, getT, dias = 30) {
+    const hoy = diaLocal(Date.now()), arr = Array(dias).fill(0);
+    items.forEach(x => { const k = hoy - diaLocal(getT(x)); if (k >= 0 && k < dias) arr[dias - 1 - k]++; });
+    return arr;
+  }
+  // Índice de la cuenca por día: promedio de los tramos con dato ese día
+  function indiceCuenca(dias = 30) {
+    const porD = {};
+    Object.values(S().dailyIndex || {}).forEach(serie => serie.forEach(p => { (porD[diaLocal(p.t)] = porD[diaLocal(p.t)] || []).push(p.v); }));
+    const hoy = diaLocal(Date.now());
+    return Array.from({ length: dias }, (_, k) => { const v = porD[hoy - (dias - 1 - k)]; return v ? v.reduce((a, b) => a + b, 0) / v.length : null; });
+  }
+  // Chip de variación: verde si mejora, rojo si empeora (con flecha y texto, no solo color)
+  function delta(actual, antes, { mejorSiSube = true, unidad = "", pct = false, dec = 0, texto = "vs. semana anterior" } = {}) {
+    if (actual == null || antes == null || isNaN(actual) || isNaN(antes)) return "";
+    const dif = pct ? (antes ? (actual - antes) / antes * 100 : 0) : actual - antes;
+    if (Math.abs(dif) < (pct ? 3 : Math.pow(10, -dec))) return `<span class="delta flat">${icon("minus")}Sin cambio ${texto}</span>`;
+    const sube = dif > 0, bien = sube === mejorSiSube;
+    const v = pct ? `${fmt.num(Math.abs(dif))}%` : `${fmt.num(Math.abs(dif), dec)}${unidad}`;
+    return `<span class="delta ${bien ? "good" : "bad"}">${icon(sube ? "arrow-up-right" : "arrow-down-right")}${sube ? "+" : "−"}${v} ${texto}</span>`;
+  }
+  function kpi2(label, ic, value, unit, note, tone = "", { spark = "", chip = "", id = "" } = {}) {
+    return `<div class="card kpi2 ${tone}"${id ? ` id="${id}"` : ""}><div class="kpi-label">${icon(ic)}${esc(label)}</div>
+      <div class="kpi-row"><div class="kpi-value">${value}${unit ? `<small>${esc(unit)}</small>` : ""}</div>${spark}</div>
+      ${chip}${note ? `<div class="kpi-note muted">${note}</div>` : ""}</div>`;
+  }
+  // Frescura de los datos: los nodos no tienen internet; lo que se ve es de su última descarga
+  function frescura() {
+    const ns = S().nodes, con = ns.filter(n => n.lastSync);
+    if (MOCK) return `<span class="fresh"><span class="dot" aria-hidden="true"></span>Simulación en el navegador · <strong>en vivo</strong></span>`;
+    if (!con.length) return `<span class="fresh off"><span class="dot" aria-hidden="true"></span>Sin datos de los nodos todavía</span>`;
+    const ult = con.reduce((a, b) => (b.lastSync > a.lastSync ? b : a));
+    const alDia = ns.filter(n => !VA.map.isStale(n) && n.lastSync).length;
+    return `<span class="fresh ${alDia < ns.length ? "warn" : ""}" title="Los nodos guardan sin internet; sus datos llegan con cada visita de Protección Civil">
+      <span class="dot" aria-hidden="true"></span>Última descarga: <strong>${esc(ult.id)}, ${fmt.ago(ult.lastSync)}</strong> · ${alDia} de ${ns.length} nodos al día</span>`;
+  }
+  // Simulaciones de la demo en un menú compacto (solo Configuración)
+  function demoMenu() {
+    if (!VA.can("config") || !demoOn()) return "";
+    const b = (a, ic, label) => `<button class="btn btn-ghost" type="button" data-demo="${a}">${icon(ic)}${label}</button>`;
+    return `<details class="demo-menu no-print"><summary class="btn btn-secondary">${icon("flask-conical")}Simular</summary>
+      <div class="demo-pop" role="group" aria-label="Simulaciones de la demo"><p>Pasan por el mismo camino que los datos reales: archivo → análisis → casos.</p>
+        ${b("reporte", "smartphone", "Reporte desde la app")}
+        ${MOCK ? b("descarga", "droplets", "Descarga en Xoxtla") : b("descarga", "hard-drive-download", "Visita a N3 (trae una descarga)") + b("vecino", "hard-drive-download", "Visita a N2 (confirma el tramo)")}
+        ${b("barrera", "trash-2", "Barrera llena")}
+        ${b("crecida", "cloud-rain", MOCK ? "Crecida" : "Visita a N5 (trae una crecida)")}
+        ${MOCK ? "" : b("reiniciar", "rotate-ccw", "Reiniciar demo (90 días)")}</div></details>`;
+  }
+  // Franja de 30 días por tramo: cada celda es un día con el color de su índice
+  function heatHtml(dias = 30) {
+    const hoy = diaLocal(Date.now());
+    const filas = S().tramos.map(t => {
+      const serie = S().dailyIndex[t.id] || [], porD = {};
+      serie.forEach(p => { porD[diaLocal(p.t)] = p.v; });
+      const celdas = Array.from({ length: dias }, (_, k) => {
+        const d = hoy - (dias - 1 - k), v = porD[d];
+        if (v == null) return `<i title="${fmt.day((d * DAY) + 6 * 3600000)}: sin datos"></i>`;
+        const s = E.indexStatus(v);
+        return `<i class="${s}${(s === "ok" && v < 80) || (s === "warn" && v >= 55) ? " l" : ""}" title="${fmt.day((d * DAY) + 6 * 3600000)}: índice ${v} (${E.semLabel[s]})"></i>`;
+      }).join("");
+      const ult = serie.length ? serie[serie.length - 1] : null;
+      const viejo = ult && diaLocal(Date.now()) - diaLocal(ult.t) > 2;
+      return `<div class="heat-row"><div class="heat-name">${esc(t.id)} · ${esc(t.name.split(" → ")[1] || t.name)}<span>${t.km ? fmt.num(t.km, 1) + " km de cauce" : ""}</span></div>
+        <div class="heat-cells" role="img" aria-label="${esc(t.id)}: índice de calidad de los últimos ${dias} días">${celdas}</div>
+        <div class="heat-now"${viejo ? ` title="Último dato del ${fmt.day(ult.t)}"` : ""}>${ult ? (viejo ? `<span class="muted">${ult.v}*</span>` : ult.v) : "—"}</div></div>`;
+    }).join("");
+    return `${filas}<div class="heat-axis"><span></span><div><span>hace ${dias} días</span><span>hoy</span></div><span>último</span></div>
+      <div class="heat-legend"><span><i style="background:#22C55E"></i>Bien (70+)</span><span><i style="background:#F59E0B"></i>Atención (40–69)</span>
+        <span><i style="background:#DC2626"></i>Crítico (menos de 40)</span><span><i style="background:#E2E8F0"></i>Sin datos</span><span>* dato de hace días: nodo sin visita</span></div>`;
+  }
+  const PERFIL = { cond: ["Conductividad", "µS/cm", 0], turb: ["Turbidez", "NTU", 0], color: ["Color 620 nm", "m⁻¹", 1], ph: ["pH", "", 2] };
+  // Promedio móvil (para que las mini gráficas muestren la tendencia y no el ruido de cada hora)
+  function movil(vals, n) {
+    return vals.map((_, i) => { const w = vals.slice(Math.max(0, i - n + 1), i + 1).filter(v => v != null); return w.length ? w.reduce((a, b) => a + b, 0) / w.length : null; });
+  }
+
+  // =========================================================
+  // RESUMEN (centro de operaciones)
+  // =========================================================
   function resumen(main) {
+    let est = null, perfilKey = "cond", perfil = null;
     function kpisHtml() {
-      const nodes = S().nodes, low = nodes.filter(n => n.battery != null && n.battery < 25).length;
-      const st = S().tramos.map(VA.map.tramoStatus);
-      const crit = st.filter(s => s === "crit").length, warn = st.filter(s => s === "warn").length, off = st.filter(s => s === "off").length;
-      const fresh = nodes.filter(n => VA.map.nodeStatus(n) !== "off").length, old = nodes.length - fresh;
-      const vis = canSeeCases() ? visibleCases() : S().cases;
-      const open = openCases(vis).length;
-      const closed30 = S().cases.filter(c => c.closedAt && Date.now() - c.closedAt < 30 * DAY);
-      const rep7 = S().reports.filter(r => Date.now() - r.t < 7 * DAY).length;
-      const closed = S().cases.filter(c => c.closedAt);
-      return [
-        MOCK ? kpi("Nodos en línea", "radio-tower", `${nodes.length}/${nodes.length}`, low ? `${low} con batería baja` : "Todos con batería suficiente", low ? "warn" : "ok")
-             : kpi("Nodos con datos al día", "radio-tower", `${fresh}/${nodes.length}`,
-                 old ? `${old} con más de ${C.staleDays} días sin visita` : low ? `${low} con batería baja` : "Todos visitados esta semana", old || low ? "warn" : "ok"),
-        kpi("Tramos con alerta", "waves", `${crit + warn}`, `${crit} crítico${crit === 1 ? "" : "s"} · ${warn} en atención${off ? ` · ${off} sin datos` : ""}`, crit ? "crit" : warn ? "warn" : "ok"),
-        canSeeCases() ? kpi("Casos abiertos", "folder-open", open, `de ${C.roles[role()].label.toLowerCase()}`, open ? "warn" : "ok")
-                      : kpi("Casos atendidos (30 días)", "circle-check", closed30.length, "Ver detalle en Transparencia", "ok"),
-        kpi("Reportes ciudadanos", "smartphone", rep7, "Últimos 7 días desde la app"),
-        kpi("Tiempo promedio de atención", "timer", closed.length ? fmt.num(avgDays(closed), 1) + " días" : "—", "Casos cerrados")
-      ].join("");
+      const now = Date.now();
+      // 1. Índice de la cuenca (promedio del último dato de cada tramo)
+      const serieI = indiceCuenca(30), ult = S().tramos.map(t => (S().dailyIndex[t.id] || []).slice(-1)[0]).filter(Boolean);
+      const indice = ult.length ? Math.round(ult.reduce((a, p) => a + p.v, 0) / ult.length) : null;
+      const hace7 = serieI.slice(0, 23).filter(v => v != null).slice(-1)[0];
+      const sI = indice != null ? E.indexStatus(indice) : "neutral";
+      // 2. Tramos en alerta
+      const st = S().tramos.map(t => ({ t, s: VA.map.tramoStatus(t) }));
+      const alerta = st.filter(x => x.s === "warn" || x.s === "crit"), sin = st.filter(x => x.s === "off");
+      // 3. Casos abiertos
+      const vis = canSeeCases() ? visibleCases() : S().cases, abiertos = openCases(vis);
+      const nuevos = porDia(vis, c => c.t, 30), sem = nuevos.slice(-7).reduce((a, b) => a + b, 0), semAnt = nuevos.slice(-14, -7).reduce((a, b) => a + b, 0);
+      const cerrados = S().cases.filter(c => c.closedAt && now - c.closedAt < 60 * DAY);
+      // 4. Reportes
+      const rep = porDia(S().reports, r => r.t, 30), r7 = rep.slice(-7).reduce((a, b) => a + b, 0), r7a = rep.slice(-14, -7).reduce((a, b) => a + b, 0);
+      const out = [
+        kpi2("Índice de calidad del río", "gauge", indice ?? "—", "/100", `Promedio de ${ult.length} tramos · ${indice != null ? E.semLabel[sI] : "sin datos"}`, sI,
+          { spark: VA.charts.spark(serieI, { color: "#0369A1" }), chip: delta(indice, hace7, { texto: "vs. hace 7 días" }) }),
+        kpi2("Tramos en alerta", "waves", alerta.length, `de ${st.length}`,
+          (alerta.map(x => `${x.t.id} ${E.semLabel[x.s].toLowerCase()}`).concat(sin.map(x => `${x.t.id} sin datos recientes`)).join(" · ")) || "Todos los tramos en bien",
+          alerta.some(x => x.s === "crit") ? "crit" : alerta.length ? "warn" : "ok"),
+        kpi2(canSeeCases() ? "Casos abiertos" : "Casos en atención", "folder-open", abiertos.length, "",
+          `${abiertos.filter(c => c.priority === "Alta").length} de alta prioridad · atención promedio ${cerrados.length ? fmt.num(avgDays(cerrados), 1) + " días" : "—"}`,
+          abiertos.length ? "warn" : "ok", { spark: VA.charts.spark(nuevos, { color: "#B45309" }), chip: delta(sem, semAnt, { mejorSiSube: false, unidad: Math.abs(sem - semAnt) === 1 ? " nuevo" : " nuevos", texto: "vs. sem. pasada" }) }),
+        kpi2("Reportes ciudadanos", "smartphone", r7, "en 7 días", `${S().reports.filter(r => r.status === "Recibido").length} sin revisar · desde la app`, "",
+          { spark: VA.charts.spark(rep, { color: "#0E7490" }), chip: delta(r7, r7a, { pct: true, mejorSiSube: false, texto: "vs. sem. pasada" }) })
+      ];
+      if (S().estaciones && S().estaciones.length) {
+        const k = est && est.kpis;
+        out.push(kpi2(`Agua tratada · ${S().estaciones[0].codigo}`, "factory", k ? fmt.num(k.m3Dia, 1) : "…", "m³/día",
+          k ? `Remueve ${fmt.pct(k.remocion.turb)} de la turbidez y ${fmt.pct(k.remocion.color)} del color` : "Cargando la estación piloto…",
+          k ? (k.remocion.turb >= 0.8 ? "ok" : "warn") : "neutral",
+          { id: "kpiEst", spark: est ? VA.charts.spark(movil(est.serie.slice(-96).map(p => (p.turb && p.turb_sal != null ? 100 * (1 - p.turb_sal / p.turb) : null)), 6), { color: "#15803D" }) : "" }));
+      }
+      if (S().basura) {
+        out.push(kpi2("Basura retirada", "trash-2", fmt.num(S().basura.kg30), "kg en 30 días",
+          `${S().basura.vaciados30} vaciados de barreras · ${fmt.num(S().basura.kg90 / 1000, 1)} t en 90 días`, "ok"));
+      }
+      return out.join("");
     }
     function recentHtml() {
-      const list = (canSeeCases() ? visibleCases() : S().cases).slice().sort((a, b) => b.t - a.t).slice(0, 6);
+      const list = (canSeeCases() ? visibleCases() : S().cases).slice().sort((a, b) => (b.closedAt ? 0 : 1) - (a.closedAt ? 0 : 1) || b.t - a.t).slice(0, 6);
       if (!list.length) return `<p class="empty">Todavía no hay casos.</p>`;
       return `<ul class="list">${list.map(c => {
         const tone = c.status === "Cerrado" ? "ok" : c.priority === "Alta" ? "crit" : "warn";
         const title = canSeeCases() ? `<a href="#/casos/${c.id}">${esc(caseType(c).label)}</a>` : esc(caseType(c).label);
         return `<li><span class="li-icon ${tone}">${icon(caseType(c).icon)}</span><div class="li-main">
-          <div class="li-title">${title}</div><div class="li-meta">${esc(casePlace(c))} · ${fmt.ago(c.t)}</div></div>
+          <div class="li-title">${title} <span class="muted small">${esc(c.id)}</span></div><div class="li-meta">${esc(casePlace(c))} · ${fmt.ago(c.t)}</div></div>
           <div>${stateBadge(c.status)}</div></li>`;
       }).join("")}</ul>`;
     }
+    function perfilNodos() {
+      let km = 0;
+      return S().nodes.map((n, i) => {
+        if (i > 0) { const t = S().tramos.find(x => x.to === n.id); km += t && t.km ? t.km : E.km(S().nodes[i - 1].lat, S().nodes[i - 1].lng, n.lat, n.lng); }
+        const r = lastReading(n.id);
+        return { id: n.id, name: n.name, km, v: r ? r[perfilKey] : null, s: VA.map.nodeStatus(n) };
+      });
+    }
+    function dibujaPerfil() {
+      if (perfil) perfil.destroy();
+      const p = C.params[perfilKey], [et, un, dec] = PERFIL[perfilKey];
+      perfil = VA.charts.profile(document.getElementById("perfil"), perfilNodos(), perfilKey,
+        { umbral: perfilKey === "ph" ? p.max : p.warn, critico: perfilKey === "ph" ? p.critMax : p.crit, etiqueta: et, unidad: un, dec });
+    }
+    function estacionHtml() {
+      if (!est || !est.kpis) return `<p class="empty">Cargando la estación piloto…</p>`;
+      const k = est.kpis, ult = est.serie[est.serie.length - 1] || {};
+      const fila = (nombre, a, b, un, dec) => {
+        const max = Math.max(a || 0, b || 0) || 1;
+        return `<div class="io-item"><div class="io-name">${nombre}</div><div class="io-vals"><b>${fmt.num(b, dec)}</b><s>de ${fmt.num(a, dec)} ${un}</s></div>
+          <div class="io-bar" aria-hidden="true"><i class="in" style="width:${(a / max * 100).toFixed(0)}%"></i><i class="out" style="width:${(b / max * 100).toFixed(0)}%"></i></div></div>`;
+      };
+      return `<div class="io">${fila("Turbidez (NTU)", ult.turb, ult.turb_sal, "", 1)}${fila("Color 620 nm (m⁻¹)", ult.color, ult.color_sal, "", 2)}
+          ${fila("Conductividad (µS/cm)", ult.cond, ult.cond_sal, "", 0)}${fila("pH", ult.ph, ult.ph_sal, "", 2)}</div>
+        <p class="small muted" style="margin:10px 0 0">Barra naranja: agua del río que entra · verde: lo que sale tratado. Lodos ${fmt.num(k.lodos)}% · filtros ${fmt.num(k.dp, 1)} de 24 kPa
+          ${k.horasRetrolavado != null ? `(retrolavado en ~${fmt.num(k.horasRetrolavado)} h)` : ""} · ${fmt.num(k.energiaWhDia)} Wh de sol al día.</p>`;
+    }
     const guest = !MOCK && !VA.session.user;
+    const hayEst = !MOCK && S().estaciones && S().estaciones.length;
     main.innerHTML = `
-      ${pageHead("Resumen de la cuenca", `Alto Atoyac y barrancas de la capital · <span id="updAgo">actualizado ${fmt.hm(Date.now())}</span>`)}
-      ${guest ? `<div class="banner">${icon("info")}<div>Estás viendo la <strong>vista pública</strong>: semáforo del río, mapa y transparencia.
+      <div class="ops-head"><div><h1>Centro de monitoreo del Alto Atoyac</h1>
+        <p>Calidad del río por tramo, casos de cada dependencia y reportes de la ciudadanía · <span id="updAgo">actualizado ${fmt.hm(Date.now())}</span></p></div>
+        <div class="ops-actions"><span id="fresh">${frescura()}</span>${demoMenu()}</div></div>
+      ${guest ? `<div class="banner">${icon("info")}<div>Estás viendo la <strong>vista pública</strong>: semáforo del río, mapa, estación piloto y transparencia.
         El personal de las dependencias entra con su cuenta desde <a href="login.html">Iniciar sesión</a>.</div></div>` : ""}
-      ${demoBar()}
-      <section class="kpis" id="kpis" aria-label="Indicadores principales">${kpisHtml()}</section>
-      <div class="grid-2">
+      <section class="kpis-6" id="kpis" aria-label="Indicadores principales">${kpisHtml()}</section>
+      <div class="grid-ops">
         <section class="card" aria-labelledby="mapTitle">
           <div class="card-head"><h2 id="mapTitle">Semáforo del río</h2><a class="btn btn-ghost" href="#/mapa">${icon("maximize-2")}Abrir mapa</a></div>
           <div class="legend"><span><i style="background:#15803D"></i>Bien</span><span><i style="background:#D97706"></i>Atención</span><span><i style="background:#DC2626"></i>Crítico</span>
             ${MOCK ? "" : `<span><i style="background:#64748B"></i>Sin datos recientes</span>`}
-            <span><span class="node-pin ok" style="width:18px;height:18px;border-width:2px;font-size:0"></span>Nodo</span><span><span class="square-pin ok" style="width:16px;height:16px;border-width:2px"></span>Barrera</span></div>
-          <div class="map" id="miniMap" role="region" aria-label="Mapa del río con el estado de cada tramo. La tabla Estado por tramo tiene la misma información."></div>
+            <span><span class="node-pin ok" style="width:18px;height:18px;border-width:2px;font-size:0"></span>Nodo</span><span><span class="square-pin ok" style="width:16px;height:16px;border-width:2px"></span>Barrera</span>
+            ${VA.map.is3d ? `<span><span class="col-swatch" aria-hidden="true"></span>Columna más alta = más cerca del umbral</span>` : ""}</div>
+          <div class="map" id="miniMap" role="region" aria-label="Mapa del río con el estado de cada tramo. La franja de calidad diaria y la tabla por tramo tienen la misma información."></div>
+        </section>
+        <section class="card" aria-labelledby="perfTitle">
+          <div class="card-head"><h2 id="perfTitle">Perfil del río</h2>
+            <div class="seg" role="group" aria-label="Parámetro del perfil">${Object.keys(PERFIL).map(k => `<button type="button" data-perf="${k}" aria-pressed="${k === perfilKey}">${esc(PERFIL[k][0].split(" ")[0])}</button>`).join("")}</div></div>
+          <p class="card-sub">Del nacimiento (N1) a la presa (N6), por kilómetro de cauce: así se ve cómo se acumula la contaminación río abajo.</p>
+          <div class="card-body"><div class="chart-box md"><canvas id="perfil" role="img" aria-label="Valor del parámetro elegido en cada nodo, de río arriba a río abajo"></canvas></div></div>
+        </section>
+      </div>
+      <div class="grid-ops">
+        <section class="card" aria-labelledby="heatTitle">
+          <div class="card-head"><h2 id="heatTitle">Calidad diaria por tramo</h2><a class="btn btn-ghost" href="#/prediccion">${icon("trending-up")}Ver pronóstico</a></div>
+          <p class="card-sub">Índice de 0 a 100 calculado con la mediana diaria de pH, conductividad, turbidez y color del nodo al final de cada tramo.</p>
+          <div class="card-body heat" id="heat">${heatHtml()}</div>
         </section>
         <section class="card" aria-labelledby="recentTitle">
-          <div class="card-head"><h2 id="recentTitle">${canSeeCases() ? "Casos recientes" : "Avisos recientes"}</h2>${canSeeCases() ? `<a class="btn btn-ghost" href="#/casos">Ver todos</a>` : ""}</div>
+          <div class="card-head"><h2 id="recentTitle">${canSeeCases() ? "Casos que requieren atención" : "Casos recientes"}</h2>${canSeeCases() ? `<a class="btn btn-ghost" href="#/casos">Ver todos</a>` : `<a class="btn btn-ghost" href="#/transparencia">Transparencia</a>`}</div>
           <div class="card-body" id="recent">${recentHtml()}</div>
         </section>
       </div>
-      <section class="card" aria-labelledby="tramosTitle">
-        <div class="card-head"><h2 id="tramosTitle">Estado por tramo</h2><span class="muted small">${MOCK ? "Valores del nodo al final de cada tramo" : "Última lectura descargada del nodo al final de cada tramo"}</span></div>
-        <div class="card-body table-wrap"><table class="data"><thead><tr><th>Tramo</th><th>Semáforo</th><th>pH</th><th>Cond. (µS/cm)</th><th>Turbidez (NTU)</th><th>Color 620 nm (m⁻¹)</th></tr></thead>
-          <tbody id="tramoBody">${tramoRows()}</tbody></table></div>
-      </section>`;
+      <div class="${hayEst ? "grid-ops-even" : ""}">
+        ${hayEst ? `<section class="card" aria-labelledby="estTitle">
+          <div class="card-head"><h2 id="estTitle">${esc(S().estaciones[0].nombre)} (${esc(S().estaciones[0].codigo)})</h2><a class="btn btn-ghost" href="#/estacion">${icon("factory")}Ver estación</a></div>
+          <p class="card-sub">Entra agua del río junto al nodo ${esc(S().estaciones[0].nodo)} y sale tratada: último dato descargado.</p>
+          <div class="card-body" id="estBody">${estacionHtml()}</div></section>` : ""}
+        <section class="card" aria-labelledby="tramosTitle">
+          <div class="card-head"><h2 id="tramosTitle">Estado por tramo</h2><span class="muted small">${MOCK ? "Valores del nodo al final de cada tramo" : "Última lectura descargada"}</span></div>
+          <div class="card-body table-wrap"><table class="data"><thead><tr><th>Tramo</th><th>Semáforo</th><th>pH</th><th>Cond.</th><th>Turb.</th><th>Color</th></tr></thead>
+            <tbody id="tramoBody">${tramoRows()}</tbody></table></div>
+        </section>
+      </div>`;
     const m = VA.map.create(document.getElementById("miniMap"), { tramoLabels: false, scroll: false });
+    dibujaPerfil();
+    main.querySelectorAll("[data-perf]").forEach(b => b.addEventListener("click", () => {
+      perfilKey = b.dataset.perf; main.querySelectorAll("[data-perf]").forEach(x => x.setAttribute("aria-pressed", x === b)); dibujaPerfil();
+    }));
+    let vivo = true;
+    async function cargaEstacion() {
+      if (!hayEst) return;
+      try { est = await VA.api.estacion(S().estaciones[0].nodo); } catch (e) { est = null; }
+      if (!vivo) return;
+      const k = document.getElementById("kpis"); if (k) k.innerHTML = kpisHtml();
+      const b = document.getElementById("estBody"); if (b) b.innerHTML = estacionHtml();
+      refreshIcons();
+    }
+    cargaEstacion();
     let lastKpi = 0;
     return {
       update(msg) {
@@ -153,10 +318,131 @@
           lastKpi = Date.now();
           document.getElementById("kpis").innerHTML = kpisHtml();
           document.getElementById("recent").innerHTML = recentHtml();
+          document.getElementById("heat").innerHTML = heatHtml();
+          document.getElementById("fresh").innerHTML = frescura();
+          dibujaPerfil();
+          if (msg.tipo === "sync") cargaEstacion();
         }
         refreshIcons();
       },
-      destroy() { m.map.remove(); }
+      destroy() { vivo = false; m.map.remove(); if (perfil) perfil.destroy(); }
+    };
+  }
+
+  // =========================================================
+  // ESTACIÓN PILOTO (la estructura del render: captación → tratamiento → río)
+  // =========================================================
+  function estacion(main) {
+    const meta = (S().estaciones || [])[0];
+    if (MOCK || !meta) {
+      main.innerHTML = pageHead("Estación piloto", "") + `<p class="empty">La estación piloto necesita el servidor (sus datos llegan con las visitas a ${meta ? esc(meta.nodo) : "N3"}).</p>`;
+      return {};
+    }
+    let data = null, key = "turb", charts = [], vivo = true;
+    const IO = { turb: ["Turbidez", "NTU", 1], color: ["Color 620 nm", "m⁻¹", 2], cond: ["Conductividad", "µS/cm", 0], ph: ["pH", "", 2] };
+    const meter = (v, max, malo = 0.85, medio = 0.65) => {
+      const f = Math.max(0, Math.min(1, (v || 0) / max)), tono = f >= malo ? "crit" : f >= medio ? "warn" : "";
+      return `<div class="meter ${tono}" role="img" aria-label="${fmt.num(f * 100)}%"><span style="width:${(f * 100).toFixed(0)}%"></span></div>`;
+    };
+    function etapas() {
+      const k = data.kpis, u = data.serie[data.serie.length - 1] || {};
+      const purga = data.mantenimiento.find(m => m.tipo === "purga");
+      const parado = !k.caudal;
+      return `<div class="flow">
+        <div class="stage"><span class="sensor" title="Sensor de entrada (agua del río)">S1</span><span class="stage-n">1 · Captación</span><h3>${icon("waves")}Compuerta y rejilla</h3>
+          <div class="big">${fmt.num(k.caudal, 2)}<small>L/s</small></div><p>Toma agua del Atoyac por gravedad. Nivel del río: ${fmt.num(k.nivelRio, 2)} m.</p></div>
+        <div class="stage"><span class="stage-n">2 · Tamiz rotatorio</span><h3>${icon("cog")}Cribado fino</h3>
+          <div class="big">${parado ? "En pausa" : "Girando"}</div><p>Retira hojas, plásticos y sólidos de más de 2 mm antes del sedimentador.</p></div>
+        <div class="stage"><span class="stage-n">3 · Sedimentador</span><h3>${icon("cylinder")}Lodos</h3>
+          <div class="big">${fmt.num(k.lodos)}<small>% lleno</small></div>${meter(k.lodos, 100, 0.9, 0.75)}
+          <p>Se purga los lunes a las 10:00${purga ? ` · última purga ${fmt.ago(purga.t)}` : ""}.</p></div>
+        <div class="stage"><span class="stage-n">4 · Filtros</span><h3>${icon("layers")}Grava, arena, carbón</h3>
+          <div class="big">${fmt.num(k.dp, 1)}<small>de 24 kPa</small></div>${meter(k.dp, 24)}
+          <div class="meter-label"><span>Carbón activado</span><span>${k.carbonDias != null ? `${fmt.num(k.carbonDias)} de ${k.carbonCada} días` : "—"}</span></div>
+          ${k.carbonDias != null ? meter(k.carbonDias, k.carbonCada, 0.92, 0.8) : ""}
+          <p>${k.horasRetrolavado != null ? `Retrolavado automático en ~${fmt.num(k.horasRetrolavado)} h` : "Presión estable"}.</p></div>
+        <div class="stage"><span class="stage-n">5 · Humedal artificial</span><h3>${icon("sprout")}Tule, carrizo, alcatraz</h3>
+          <div class="big">${esc(data.area_humedal_m2)}<small>m²</small></div><p>Las raíces filtran y las bacterias degradan lo que queda. Remoción total de turbidez: ${fmt.pct(k.remocion.turb)}.</p></div>
+        <div class="stage"><span class="sensor" title="Sensor de salida (agua tratada)">S2</span><span class="stage-n">6 · Descarga al río</span><h3>${icon("droplets")}Agua tratada</h3>
+          <div class="big">${fmt.num(u.turb_sal, 1)}<small>NTU</small></div><p>Color ${fmt.num(u.color_sal, 2)} m⁻¹ · pH ${fmt.num(u.ph_sal, 2)} · vuelve al Atoyac sobre un lecho de grava.</p></div>
+      </div>`;
+    }
+    function kpis() {
+      const k = data.kpis;
+      return [
+        kpi2("Caudal tratado", "waves", fmt.num(k.caudal, 2), "L/s", `Nivel del río ${fmt.num(k.nivelRio, 2)} m`, k.caudal ? "ok" : "warn",
+          { spark: VA.charts.spark(data.serie.slice(-72).map(p => p.caudal), { color: "#0E7490" }) }),
+        kpi2("Agua tratada", "glass-water", fmt.num(k.m3Dia, 1), "m³/día", `${k.diaBase ? `Día completo del ${fmt.day(k.diaBase)}` : "Estimado con las horas disponibles"} · ${fmt.num(k.m3Periodo, 0)} m³ en la semana`, "ok"),
+        kpi2("Remoción de turbidez", "filter", fmt.pct(k.remocion.turb), "", `${fmt.pct(k.remocionPeriodo.turb)} promedio de la semana`, k.remocion.turb >= 0.8 ? "ok" : "warn",
+          { spark: VA.charts.spark(data.serie.slice(-72).map(p => p.turb && p.turb_sal != null ? 100 * (1 - p.turb_sal / p.turb) : null), { color: "#15803D" }) }),
+        kpi2("Remoción de color", "palette", fmt.pct(k.remocion.color), "", k.carbonDias != null && k.carbonCada - k.carbonDias < 5
+          ? `El carbón activado ya rinde menos: cambio en ${fmt.num(Math.max(0, k.carbonCada - k.carbonDias))} días` : "Tintes textiles atrapados en el carbón activado",
+          k.remocion.color >= 0.55 ? "ok" : "warn",
+          { spark: VA.charts.spark(data.eficienciaColorDiaria.map(([, e]) => e), { color: "#7C3AED" }) }),
+        kpi2("Sólidos retenidos", "package", fmt.num(k.solidosKgDia, 2), "kg/día", "Lodo que ya no llega a la presa de Valsequillo", "ok"),
+        kpi2("Energía solar", "sun", fmt.num(k.energiaWhDia), "Wh/día", `Batería del nodo ${k.bateria != null ? k.bateria + "%" : "—"} · sin conexión a la red`, "ok",
+          { spark: VA.charts.spark(data.serie.slice(-72).map(p => p.solar), { color: "#CA8A04" }) })
+      ].join("");
+    }
+    function mantenimiento() {
+      const ic = { purga: "cylinder", retrolavado: "refresh-ccw", carbon: "layers" };
+      return data.mantenimiento.length ? `<ul class="maint">${data.mantenimiento.map(m => `<li>${icon(ic[m.tipo] || "wrench")}<div>${esc(m.texto)}<time>${m.tipo === "carbon" ? fmt.day(m.t) : fmt.date(m.t)} · ${fmt.ago(m.t)}</time></div></li>`).join("")}</ul>`
+        : `<p class="empty">Sin eventos de mantenimiento en el periodo.</p>`;
+    }
+    function dibuja() {
+      charts.forEach(c => c.destroy()); charts = [];
+      const [et, un, dec] = IO[key];
+      charts.push(VA.charts.inOut(document.getElementById("ioChart"), data.serie, key, { etiqueta: et, unidad: un, dec }));
+      charts.push(VA.charts.operation(document.getElementById("opChart"), data.serie));
+      charts.push(VA.charts.energy(document.getElementById("enChart"), data.serie));
+    }
+    function render() {
+      const k = data.kpis;
+      if (!k) { main.querySelector("#estBody").innerHTML = `<p class="empty">La estación todavía no tiene datos. Llegan con la primera visita a ${esc(meta.nodo)}.</p>`; return; }
+      main.querySelector("#estBody").innerHTML = `
+        <section class="kpis-6" aria-label="Indicadores de la estación">${kpis()}</section>
+        <section class="card" aria-labelledby="flowTitle"><div class="card-head"><h2 id="flowTitle">Cómo trata el agua</h2>
+          <span class="muted small">Último dato: ${fmt.date(data.hasta)} (${fmt.ago(data.hasta)})</span></div>
+          <div class="card-body">${etapas()}</div></section>
+        <div class="grid-ops-even">
+          <section class="card" aria-labelledby="ioTitle"><div class="card-head"><h2 id="ioTitle">Entrada contra salida</h2>
+            <div class="seg" role="group" aria-label="Parámetro">${Object.keys(IO).map(x => `<button type="button" data-io="${x}" aria-pressed="${x === key}">${esc(IO[x][0].split(" ")[0])}</button>`).join("")}</div></div>
+            <p class="card-sub">Mediana por hora, últimos 7 días. La salida responde horas después: el agua tarda en cruzar el humedal.</p>
+            <div class="card-body"><div class="chart-box md"><canvas id="ioChart" role="img" aria-label="Agua del río que entra y agua tratada que sale"></canvas></div>
+            <p class="small muted" style="margin:8px 0 0">Remoción de la semana: turbidez ${fmt.pct(k.remocionPeriodo.turb)} · color ${fmt.pct(k.remocionPeriodo.color)} · conductividad ${fmt.pct(k.remocionPeriodo.cond)} (las sales disueltas casi no se quitan con plantas).</p></div></section>
+          <section class="card" aria-labelledby="opTitle"><div class="card-head"><h2 id="opTitle">Operación</h2></div>
+            <p class="card-sub">Los lodos suben con la turbidez y bajan con cada purga; los filtros se tapan y se retrolavan solos a 24 kPa.</p>
+            <div class="card-body"><div class="chart-box md"><canvas id="opChart" role="img" aria-label="Nivel de lodos y presión de los filtros"></canvas></div></div></section>
+        </div>
+        <div class="grid-ops">
+          <section class="card" aria-labelledby="enTitle"><div class="card-head"><h2 id="enTitle">Energía y caudal</h2></div>
+            <p class="card-sub">Funciona solo con su panel solar; de noche usa la batería.</p>
+            <div class="card-body"><div class="chart-box sm"><canvas id="enChart" role="img" aria-label="Potencia del panel solar y caudal tratado"></canvas></div></div></section>
+          <section class="card" aria-labelledby="mtTitle"><div class="card-head"><h2 id="mtTitle">Bitácora de mantenimiento</h2></div>
+            <p class="card-sub">Detectada en los datos de los sensores.</p><div class="card-body">${mantenimiento()}</div></section>
+        </div>`;
+      main.querySelectorAll("[data-io]").forEach(b => b.addEventListener("click", () => {
+        key = b.dataset.io; main.querySelectorAll("[data-io]").forEach(x => x.setAttribute("aria-pressed", x === b));
+        charts[0].destroy(); const [et, un, dec] = IO[key];
+        charts[0] = VA.charts.inOut(document.getElementById("ioChart"), data.serie, key, { etiqueta: et, unidad: un, dec });
+      }));
+      dibuja();
+      refreshIcons();
+    }
+    main.innerHTML = `
+      ${pageHead(`${meta.nombre} (${meta.codigo})`, `Capta agua del Atoyac junto al nodo ${esc(meta.nodo)}, la limpia con sedimentación, filtros y un humedal artificial, y la regresa al río.`,
+        `<a class="btn btn-secondary" href="#/nodos/${esc(meta.nodo)}">${icon("activity")}Nodo ${esc(meta.nodo)}</a>`)}
+      ${demoOn() ? `<div class="note-sim">${icon("flask-conical")}<div><strong>Estructura en diseño.</strong> Estos datos salen del modelo de la estación (simulación con patrones reales del río),
+        en el mismo formato que mandarán sus sensores de entrada (S1) y salida (S2) en el archivo de la microSD.</div></div>` : ""}
+      <div id="estBody" style="display:grid;gap:var(--space-4)"><p class="empty">Cargando la estación…</p></div>`;
+    async function carga() {
+      try { data = await VA.api.estacion(meta.nodo, 7); } catch (err) { if (vivo) main.querySelector("#estBody").innerHTML = `<div class="banner crit">${icon("octagon-alert")}<div>${esc(err.message)}</div></div>`; refreshIcons(); return; }
+      if (vivo) render();
+    }
+    carga();
+    return {
+      update(msg) { if (msg.tipo === "sync") carga(); },
+      destroy() { vivo = false; charts.forEach(c => c.destroy()); }
     };
   }
 
@@ -167,7 +453,8 @@
     const layers = { tramos: true, nodos: true, barreras: true, reportes: true, calor: true };
     const chip = (k, label, ic) => `<button class="chip" type="button" data-layer="${k}" aria-pressed="${layers[k]}">${icon(ic)}${label}</button>`;
     main.innerHTML = `
-      ${pageHead("Mapa de la cuenca", "Tramos, nodos, barreras, reportes de la app y mapa de calor de las zonas más afectadas")}
+      ${pageHead("Mapa de la cuenca", VA.map.is3d ? "Relieve en 3D del Alto Atoyac: tramos, nodos, barreras, reportes de la app y mapa de calor de las zonas más afectadas"
+        : "Tramos, nodos, barreras, reportes de la app y mapa de calor de las zonas más afectadas")}
       <section class="card">
         <div class="map-toolbar" role="group" aria-label="Capas del mapa">
           ${chip("tramos", "Tramos", "waves")}${chip("nodos", "Nodos", "radio-tower")}${chip("barreras", "Barreras", "trash-2")}
@@ -180,13 +467,15 @@
         <div class="legend">
           <span><i style="background:#15803D"></i>Bien</span><span><i style="background:#D97706"></i>Atención</span><span><i style="background:#DC2626"></i>Crítico</span>
           ${MOCK ? "" : `<span><i style="background:#64748B"></i>Sin datos recientes</span>`}
-          <span><span class="report-pin"></span>Reporte ciudadano${canSeeCases() || role() === "tec" ? "" : " (ubicación aproximada)"}</span>
+          <span><span class="report-pin"></span>Reporte ciudadano${C.roles[role()].staff ? "" : " (ubicación aproximada)"}</span>
           <span>Mapa de calor: baja <span class="heat-scale" aria-hidden="true"></span> alta concentración de reportes y alertas</span>
+          ${VA.map.is3d ? `<span><span class="col-swatch" aria-hidden="true"></span>Columnas 3D: en nodos, qué tan cerca está la lectura de su umbral; en barreras, cuánto se llenaron</span>
+          <span class="map-hint">${icon("rotate-3d")}Para girar o inclinar: clic derecho y arrastrar (o Ctrl + arrastrar; en pantalla táctil, dos dedos)</span>` : ""}
         </div>
       </section>
       <details class="card"><summary class="card-body" style="cursor:pointer;font-weight:700">Lista de puntos del mapa (alternativa en texto)</summary>
         <div class="card-body table-wrap" id="pointList"></div></details>`;
-    const m = VA.map.create(document.getElementById("bigMap"), { zoom: 11, reports: true, heat: true, tramoLabels: true });
+    const m = VA.map.create(document.getElementById("bigMap"), { zoom: 11, reports: true, heat: true, tramoLabels: true, reveal: true });
     if (VA.state.focus) { m.focus(VA.state.focus[0], VA.state.focus[1]); VA.state.focus = null; }
     main.querySelectorAll("[data-layer]").forEach(b => b.addEventListener("click", () => {
       const k = b.dataset.layer; layers[k] = !layers[k]; b.setAttribute("aria-pressed", layers[k]); m.setLayer(k, layers[k]);
@@ -275,7 +564,11 @@
 
   function openCase(id) {
     const c = S().cases.find(x => x.id === id);
-    if (!c || c.public) { toast("warn", "Caso no disponible", `${id} no existe o pertenece a otra dependencia.`); return; }
+    if (!c || c.public) {
+      toast("warn", "Caso no disponible", `${id} no existe o pertenece a otra dependencia.`);
+      if (location.hash.startsWith("#/casos/")) history.replaceState(null, "", "#/casos");
+      return;
+    }
     const t = caseType(c), canAct = C.roles[role()].deps.includes(c.dep);
     const linked = c.reports.map(rid => S().reports.find(r => r.id === rid)).filter(Boolean);
     const node = c.node && S().nodes.find(n => n.id === c.node);
@@ -379,6 +672,9 @@
         ${needs ? `<div class="card-body" style="padding-bottom:0"><div class="banner">${icon("wrench")}<div><strong>Requiere mantenimiento.</strong> ${n.battery != null ? `Batería ${n.battery}% · ` : ""}calibración hace ${cd} días. Asignado a ${esc(n.tec || "el Tecnológico del tramo")}.</div></div></div>` : ""}
         ${hist.length ? `
         <div class="current-values" style="margin-top:12px" aria-live="off">${currentValues()}</div>
+        ${MOCK ? "" : `<div class="card-body" style="padding-bottom:0"><h3 style="font-size:.95rem;margin:0 0 6px">Últimos 7 días con datos · mediana por hora</h3>
+          <div class="chart-box sm"><canvas id="serieChart" role="img" aria-label="${esc(C.params[key].label)} en ${esc(n.name)}, mediana por hora de los últimos 7 días con datos"></canvas></div></div>
+          <h3 style="font-size:.95rem;margin:14px var(--space-4) 0">Lecturas de la última descarga</h3>`}
         <div class="card-body"><div class="chart-box"><canvas id="telChart" role="img" aria-label="Gráfica de ${esc(C.params[key].label)} en ${esc(n.name)}. Los triángulos rojos marcan anomalías."></canvas></div>
           <p class="muted small" style="margin-top:8px">${esc(C.params[key].help || "")} ${MOCK
             ? "La demo sin servidor manda una lectura cada 3 s. El nodo real guarda una cada 10 min, y una por minuto cuando detecta una anomalía."
@@ -390,15 +686,29 @@
     }
     main.innerHTML = `
       ${pageHead("Nodos", MOCK ? "Telemetría simulada de la red de sensores del río" : "Los nodos miden sin internet; aquí se ve lo que traía cada uno en su última descarga",
-        `<a class="btn btn-secondary" href="#/mapa">${icon("map")}Ver en el mapa</a>`)}
-      ${demoBar()}
+        `${(S().estaciones || []).length ? `<a class="btn btn-secondary" href="#/estacion">${icon("factory")}Estación piloto</a>` : ""}<a class="btn btn-secondary" href="#/mapa">${icon("map")}Ver en el mapa</a>`)}
       <section class="node-cards" id="cards" aria-label="Nodos de la red">${S().nodes.map(card).join("")}</section>
       <section class="card" id="detail" aria-labelledby="detTitle"></section>`;
+    const series = {};                                   // medianas por hora ya pedidas, por nodo
+    let chart2 = null;
+    async function dibujaSerie() {
+      if (MOCK) return;
+      const nodo = sel, k = key;
+      if (!series[nodo]) {
+        try { series[nodo] = await VA.api.series(nodo, 7, "hora"); } catch (e) { return; }
+      }
+      const cv = document.getElementById("serieChart");
+      if (!cv || nodo !== sel || k !== key) return;
+      if (chart2) chart2.destroy();
+      chart2 = VA.charts.series(cv, series[nodo].puntos || [], k);
+    }
     function renderDetail() {
       if (chart) { chart.destroy(); chart = null; }
+      if (chart2) { chart2.destroy(); chart2 = null; }
       document.getElementById("detail").innerHTML = detail();
       const canvas = document.getElementById("telChart");
       if (canvas) chart = VA.charts.telemetry(canvas, sel, key);
+      dibujaSerie();
       document.querySelectorAll("[data-key]").forEach(b => b.addEventListener("click", () => { key = b.dataset.key; renderDetail(); }));
       refreshIcons();
     }
@@ -412,6 +722,7 @@
     return {
       update(msg) {
         if (msg.tipo === "sync") {                // llegó un lote: todo puede haber cambiado
+          Object.keys(series).forEach(k => delete series[k]);
           if (!S().nodes.some(n => n.id === sel)) sel = S().nodes[0].id;
           document.getElementById("cards").innerHTML = S().nodes.map(card).join("");
           renderDetail();
@@ -427,7 +738,7 @@
         }
         refreshIcons();
       },
-      destroy() { if (chart) chart.destroy(); }
+      destroy() { if (chart) chart.destroy(); if (chart2) chart2.destroy(); }
     };
   }
 
@@ -436,7 +747,7 @@
   // =========================================================
   function reportes(main) {
     const f = { cat: "", estado: "" };
-    const canEdit = C.reportEditors.includes(role());
+    const canEdit = VA.can("validar");
     main.innerHTML = `
       ${pageHead("Reportes de la app", "Llegan al momento desde la app móvil ciudadana (Android y iOS) con foto, ubicación o nota de voz")}
       ${demoBar()}
@@ -520,6 +831,13 @@
         <td>${x.motivos.length ? x.motivos.map(m => `<span class="badge ${/días|nunca/.test(m) ? "crit" : "warn"}">${esc(m)}</span>`).join(" ") : `<span class="muted">Visita de rutina</span>`}</td>
         <td class="num">${x.n.battery != null ? x.n.battery + "%" : "—"}</td></tr>`).join("");
     }
+    // El nodo que tiene estación piloto escribe además las columnas de la planta
+    const ayudaCsv = id => {
+      const est = (S().estaciones || []).find(e => e.nodo === id);
+      return "Columnas: t, ph, cond, turb, color, temp, nivel (y opcionales bateria, muestra, hash)." +
+        (est ? ` En este nodo está la ${esc(est.nombre)} (${esc(est.codigo)}): el archivo también puede traer caudal, turb_sal, color_sal, cond_sal, ph_sal, lodos, dp_filtro y solar.` : "") +
+        " Máximo 5 MB.";
+    };
     main.innerHTML = `
       ${pageHead("Recolección", "En el río no hay internet: cada nodo guarda sus lecturas en la microSD y aquí se suben después de la visita")}
       ${demoBar()}
@@ -536,7 +854,7 @@
               <select id="upNodo" required>${S().nodes.map(n => `<option value="${n.id}">${esc(n.id)} · ${esc(n.name)}</option>`).join("")}</select></div>
             <div class="field"><label for="upFile">Archivo CSV de la microSD</label>
               <input id="upFile" type="file" accept=".csv,text/csv" required aria-describedby="upHelp">
-              <span class="help" id="upHelp">Columnas: t, ph, cond, turb, color, temp, nivel (y opcionales bateria, muestra, hash). Máximo 5 MB.</span></div>
+              <span class="help" id="upHelp">${ayudaCsv(S().nodes[0] && S().nodes[0].id)}</span></div>
             <fieldset class="checks"><legend>Lista de campo</legend>
               <label><input type="checkbox" id="ckLimpieza"> Limpié las sondas</label>
               <label><input type="checkbox" id="ckCalibracion"> Calibré el nodo</label>
@@ -566,6 +884,9 @@
     document.getElementById("exNodo").addEventListener("change", setEx);
     document.getElementById("exEvento").addEventListener("change", setEx);
     setEx();
+    const upNodo = document.getElementById("upNodo");
+    const setAyuda = () => { document.getElementById("upHelp").innerHTML = ayudaCsv(upNodo.value); };
+    upNodo.addEventListener("change", setAyuda);
 
     async function lotes() {
       const body = document.getElementById("lotBody"); if (!body) return;
@@ -605,7 +926,7 @@
           <br>${r.eventos ? `El análisis encontró <strong>${r.eventos} posible${r.eventos === 1 ? "" : "s"} descarga${r.eventos === 1 ? "" : "s"}</strong>.` : "El análisis no encontró descargas."}
           ${r.turbidez_por_lluvia ? " La turbidez subió junto con el nivel del agua: se tomó como lodo arrastrado por la lluvia, no como descarga." : ""}
           ${casos.length ? ` Casos abiertos o actualizados: ${casos.map(id => canSeeCases() ? `<a href="#/casos/${esc(id)}">${esc(id)}</a>` : esc(id)).join(", ")}.` : ""}</div></div>`;
-        form.reset();
+        form.reset(); setAyuda();
         await VA.api.refresh();
         VA.app.emit({ tipo: "sync", caseChanged: true });
       } catch (err) { errEl.textContent = err.message; errEl.hidden = false; }
@@ -620,31 +941,48 @@
   function prediccion(main) {
     const withData = S().tramos.filter(t => (S().dailyIndex[t.id] || []).length >= 3);
     if (!withData.length) { main.innerHTML = pageHead("Predicción por tramo", "") + `<p class="empty">Todavía no hay suficiente historial para pronosticar. Se necesitan al menos tres días de datos por tramo.</p>`; return {}; }
-    let sel = withData.some(t => t.id === "T3") ? "T3" : withData[0].id, chart = null;
+    let sel = withData.some(t => t.id === "T2") ? "T2" : withData[0].id, chart = null;
+    const DIAS_SEM = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"];
     main.innerHTML = `
-      ${pageHead("Predicción por tramo", "Cómo estará la calidad del agua los próximos 5 días si la tendencia sigue igual")}
+      ${pageHead("Pronóstico por tramo", "Cómo estará la calidad del agua la próxima semana, con lo que han medido los nodos")}
       <section class="card">
         <div class="card-head"><h2 id="pTitle"></h2>
           <div class="chips" role="group" aria-label="Tramo">${withData.map(t => `<button class="chip" type="button" data-t="${t.id}" aria-pressed="${t.id === sel}">${t.id}</button>`).join("")}</div></div>
         <div class="card-body"><div class="banner" id="pSummary"></div></div>
-        <div class="card-body"><div class="chart-box"><canvas id="fcChart" role="img" aria-label="Índice de calidad real y pronosticado"></canvas></div></div>
-        <div class="card-body table-wrap"><table class="data"><thead><tr><th>Día</th><th>Índice pronosticado</th><th>Rango 95%</th><th>Semáforo</th></tr></thead><tbody id="fcBody"></tbody></table></div>
-        <div class="card-foot">Modelo de demostración: tendencia de los últimos 10 días con banda de confianza de 95% sobre un índice de ejemplo. En producción: Random Forest entrenado con datos de Conagua (RENAMECA), la red propia y el pronóstico de lluvia. El índice resume pH, conductividad, turbidez, color y oxígeno (0 = muy mala, 100 = buena).</div>
+        <div class="card-body"><div class="chart-box"><canvas id="fcChart" role="img" aria-label="Índice de calidad medido (30 días) y pronosticado (7 días)"></canvas></div></div>
+        <div class="grid-ops-even" style="padding:0 var(--space-4) var(--space-4)">
+          <div class="table-wrap"><table class="data"><thead><tr><th>Día</th><th>Índice</th><th>Rango probable</th><th>Semáforo</th></tr></thead><tbody id="fcBody"></tbody></table></div>
+          <div class="small" id="pModel"></div>
+        </div>
       </section>`;
     function render() {
-      const t = S().tramos.find(x => x.id === sel), series = S().dailyIndex[sel], fc = E.forecast(series, 5);
+      const t = S().tramos.find(x => x.id === sel), series = S().dailyIndex[sel];
+      const ultimo = series[series.length - 1];
+      const atraso = Math.max(0, diaLocal(Date.now()) - diaLocal(ultimo.t));          // días sin datos (nodo sin visita)
+      const fc = E.forecast(series, 7 + atraso);
+      const futuro = fc.points.slice(atraso);
       document.getElementById("pTitle").textContent = `${t.id} · ${t.name}`;
-      const now = series[series.length - 1].v, end = fc.points[fc.points.length - 1];
+      const now = ultimo.v, end = futuro[futuro.length - 1];
       const sNow = E.indexStatus(now), sEnd = E.indexStatus(end.v);
-      const firstChange = fc.points.find(p => E.indexStatus(p.v) !== sNow);
+      const firstChange = futuro.find(p => E.indexStatus(p.v) !== sNow);
       const sumEl = document.getElementById("pSummary");
-      sumEl.className = "banner" + (sEnd === "crit" ? " crit" : "");
-      sumEl.innerHTML = `${icon(fc.slope < 0 ? "trending-down" : "trending-up")}<div><strong>Hoy: ${now} (${E.semLabel[sNow]}).</strong> ${
-        firstChange ? `Si la tendencia sigue, pasa a <strong>${E.semLabel[E.indexStatus(firstChange.v)]}</strong> el ${fmt.day(firstChange.t)}.` : `Se mantiene en ${E.semLabel[sNow]} los próximos 5 días.`}
+      sumEl.className = "banner" + (sEnd === "crit" ? " crit" : atraso > 2 ? " warn" : "");
+      sumEl.innerHTML = `${icon(fc.slope < -0.5 ? "trending-down" : fc.slope > 0.5 ? "trending-up" : "minus")}<div><strong>Último índice: ${now} (${E.semLabel[sNow]})</strong>${atraso ? `, del ${fmt.day(ultimo.t)}` : ""}.
+        ${atraso > 2 ? `El nodo ${esc(t.to)} lleva ${atraso} días sin visita: el pronóstico arranca de su último dato y su rango es más ancho.` : ""}
+        ${firstChange ? `Pasaría a <strong>${E.semLabel[E.indexStatus(firstChange.v)]}</strong> el ${fmt.day(firstChange.t)}.` : `Se mantiene en ${E.semLabel[sNow]} la próxima semana.`}
         ${sEnd === "crit" ? " La vida acuática de este tramo estaría en riesgo." : ""}</div>`;
-      document.getElementById("fcBody").innerHTML = fc.points.map(p => `<tr><td>${fmt.day(p.t)}</td><td class="num">${p.v}</td><td class="num">${p.lo}–${p.hi}</td><td>${badge(E.indexStatus(p.v))}</td></tr>`).join("");
+      document.getElementById("fcBody").innerHTML = futuro.map(p => `<tr><td>${fmt.day(p.t)}</td><td class="num">${p.v}</td><td class="num">${p.lo}–${p.hi}</td><td>${badge(E.indexStatus(p.v))}</td></tr>`).join("");
+      // El efecto de cada día de la semana sale del propio historial (la industria descarga más entre semana)
+      const efecto = fc.weekly || [], n = series.slice(-90).length, base = series.slice(-90)[0].t;
+      const porDiaSem = efecto.map((v, i) => ({ d: (new Date(base + i * DAY).getDay() + 6) % 7, v })).sort((a, b) => a.d - b.d);
+      const peor = porDiaSem.length ? porDiaSem.reduce((a, b) => (b.v < a.v ? b : a)) : null;
+      document.getElementById("pModel").innerHTML = `<p><strong>Cómo se calcula.</strong> Holt-Winters: nivel actual + tendencia (amortiguada) + efecto de cada día de la semana,
+        ajustado con ${n} días medidos. No es una caja negra: cada parte se puede explicar.</p>
+        <p>Tendencia: <strong>${fc.slope > 0 ? "+" : ""}${fmt.num(fc.slope, 1)} puntos por semana</strong>${peor ? ` · el día que peor sale es el <strong>${DIAS_SEM[peor.d]}</strong> (${fmt.num(peor.v, 1)} puntos)` : ""}.
+        Error típico de un día adelante: ±${fmt.num(fc.sd || 0, 1)} puntos; el rango probable cubre el 80% de los casos.</p>
+        <p class="muted">Con más meses de datos se agregará la lluvia pronosticada (Conagua/SMN) para anticipar crecidas.</p>`;
       if (chart) chart.destroy();
-      chart = VA.charts.forecast(document.getElementById("fcChart"), series, fc);
+      chart = VA.charts.forecast(document.getElementById("fcChart"), series.slice(-30), { ...fc, points: fc.points });
       refreshIcons();
     }
     main.querySelectorAll("[data-t]").forEach(b => b.addEventListener("click", () => {
@@ -668,7 +1006,8 @@
         ${kpi("Casos atendidos", "circle-check", closed.length, "Cerrados en la plataforma", "ok")}
         ${kpi("Casos abiertos", "folder-open", openCases(S().cases).length, "En proceso", "warn")}
         ${kpi("Reportes ciudadanos", "smartphone", S().reports.length, "Desde la app, últimos 30 días")}
-        ${demoOn() ? kpi("Basura retirada", "trash-2", fmt.num(1420) + " kg", "Barreras y jornadas (cifra de ejemplo)") : ""}
+        ${kpi("Tiempo promedio de atención", "timer", closed.length ? fmt.num(avgDays(closed), 1) + " días" : "—", "De los casos cerrados")}
+        ${S().basura ? kpi("Basura retirada", "trash-2", fmt.num(S().basura.kg90) + " kg", `De las barreras en 90 días · ${fmt.num(S().basura.kg30)} kg en el último mes`) : ""}
       </section>
       <div class="grid-2-even">
         <section class="card"><div class="card-head"><h2>Tiempo promedio de atención</h2></div>
@@ -693,55 +1032,126 @@
   // =========================================================
   function usuarios(main) {
     const roleOptions = sel => Object.entries(C.roles).filter(([k]) => k !== "publico").map(([k, v]) => `<option value="${k}"${k === sel ? " selected" : ""}>${esc(v.label)}</option>`).join("");
-    let list = [];
+    const fixedPerms = rol => rol === "admin" || rol === "ciudadano";
+    const RESULT = { ok: ["ok", "Entró"], clave: ["warn", "Contraseña incorrecta"], desactivada: ["neutral", "Cuenta desactivada"], bloqueo: ["crit", "Bloqueada por intentos"] };
+    let list = [], cat = null;
     main.innerHTML = `
-      ${pageHead("Usuarios", "Cuentas del personal de cada dependencia y de la ciudadanía registrada en la app")}
+      ${pageHead("Usuarios", "Cuentas del personal, qué puede usar cada persona y bitácora de accesos")}
       <section class="card" aria-labelledby="newTitle">
         <div class="card-head"><h2 id="newTitle">Nueva cuenta</h2></div>
         <form class="card-body form-grid cols" id="newForm" novalidate>
           <div class="field"><label for="nuNombre">Nombre</label><input id="nuNombre" type="text" required minlength="2" maxlength="80" autocomplete="off"></div>
           <div class="field"><label for="nuCuenta">Correo o teléfono</label><input id="nuCuenta" type="text" required maxlength="120" autocomplete="off" inputmode="email"></div>
           <div class="field"><label for="nuRol">Rol</label><select id="nuRol">${roleOptions("ambiental")}</select></div>
-          ${passField("nuClave", "Contraseña temporal", { help: "Mínimo 8 caracteres. Pídele que la cambie al entrar." })}
+          ${passField("nuClave", "Contraseña temporal", { help: "Mínimo 8 caracteres. Al entrar por primera vez, el sistema le pide crear la suya." })}
+          <fieldset class="perm-set"><legend>Qué podrá usar</legend><div class="perm-grid" id="nuPerms"><p class="small muted">Cargando permisos…</p></div></fieldset>
           <p class="form-error" id="nuErr" role="alert" hidden></p>
           <div class="btn-row"><button class="btn btn-primary" type="submit">${icon("user-plus")}Crear cuenta</button></div>
         </form>
       </section>
       <section class="card" aria-labelledby="usTitle">
         <div class="card-head"><h2 id="usTitle">Cuentas</h2><span class="muted small" id="usCount"></span></div>
-        <div class="card-body table-wrap"><table class="data"><thead><tr><th>Nombre</th><th>Cuenta</th><th>Rol</th><th>Estado</th><th>Último acceso</th><th><span class="sr-only">Acciones</span></th></tr></thead>
+        <div class="card-body table-wrap"><table class="data"><thead><tr><th>Persona</th><th>Rol</th><th>Puede usar</th><th>Estado</th><th>Último acceso</th><th><span class="sr-only">Acciones</span></th></tr></thead>
           <tbody id="usBody"><tr><td colspan="6" class="empty">Cargando…</td></tr></tbody></table></div>
+      </section>
+      <section class="card" aria-labelledby="logTitle">
+        <div class="card-head"><h2 id="logTitle">Bitácora de accesos</h2><span class="muted small">Últimos intentos de inicio de sesión, correctos y fallidos</span></div>
+        <div class="card-body table-wrap"><table class="data"><thead><tr><th>Cuándo</th><th>Cuenta</th><th>Resultado</th><th>Desde</th></tr></thead>
+          <tbody id="logBody"><tr><td colspan="4" class="empty">Cargando…</td></tr></tbody></table></div>
       </section>`;
     wirePassToggles(main);
     const me = VA.session.user;
+
+    // Casillas de permisos: las que trae el rol vienen marcadas; Administración y ciudadanía no se ajustan
+    const grantable = () => Object.keys(cat.permisos).filter(p => !cat.solo_admin.includes(p));
+    function permGrid(prefix, rol, selected) {
+      if (fixedPerms(rol)) return `<p class="small muted">${rol === "admin" ? "Administración tiene acceso a todo, incluidas las cuentas y la configuración."
+        : "La ciudadanía reporta desde la app; en la plataforma solo ve la vista pública."}</p>`;
+      const preset = cat.por_rol[rol] || [];
+      return grantable().map(p => `<label class="perm-item" for="${prefix}_${p}"><input type="checkbox" id="${prefix}_${p}" value="${p}"${selected.includes(p) ? " checked" : ""}>
+        <span><strong>${esc(C.permisoLabels[p] || p)}</strong>${preset.includes(p) ? ` <span class="perm-tag">del rol</span>` : ""}<span class="sub">${esc(cat.permisos[p])}</span></span></label>`).join("");
+    }
+    const checkedIn = root => [...root.querySelectorAll('input[type="checkbox"]:checked')].map(i => i.value);
+    function newPerms() {
+      if (!cat) return;
+      const rol = document.getElementById("nuRol").value;
+      document.getElementById("nuPerms").innerHTML = permGrid("np", rol, cat.por_rol[rol] || []);
+    }
+    document.getElementById("nuRol").addEventListener("change", newPerms);
+
+    function permSummary(u) {
+      if (u.rol === "admin") return `<span class="perm-all">Todo</span>`;
+      if (u.rol === "ciudadano") return `<span class="muted">App ciudadana</span>`;
+      const names = u.permisos.map(p => C.permisoLabels[p] || p);
+      return (names.length ? esc(names.join(" · ")) : `<span class="muted">Solo vista pública</span>`) + (u.permisos_propios ? ` <span class="badge warn">Ajustados</span>` : "");
+    }
     function rows() {
       document.getElementById("usCount").textContent = `${list.filter(u => u.activo).length} activas de ${list.length}`;
       document.getElementById("usBody").innerHTML = list.map(u => `<tr>
-        <td><strong>${esc(u.nombre)}</strong>${u.id === me.id ? ` <span class="badge info">Tú</span>` : ""}${u.demo ? ` <span class="badge neutral">Demo</span>` : ""}</td>
-        <td>${esc(u.cuenta)}</td>
+        <td><strong>${esc(u.nombre)}</strong>${u.id === me.id ? ` <span class="badge info">Tú</span>` : ""}${u.demo ? ` <span class="badge neutral">Demo</span>` : ""}<span class="sub">${esc(u.cuenta)}</span></td>
         <td><label class="sr-only" for="rol_${u.id}">Rol de ${esc(u.nombre)}</label><select id="rol_${u.id}" data-rol="${u.id}"${u.id === me.id ? " disabled" : ""}>${roleOptions(u.rol)}</select></td>
-        <td>${u.activo ? badge("ok", "Activa") : badge("neutral", "Desactivada")}</td>
+        <td class="perm-cell">${permSummary(u)}</td>
+        <td>${u.activo ? badge("ok", "Activa") : badge("neutral", "Desactivada")}${u.cambiar_clave ? `<span class="sub">Debe cambiar su contraseña temporal</span>` : ""}</td>
         <td>${u.ultimo_acceso ? fmt.date(u.ultimo_acceso) : `<span class="muted">Nunca</span>`}</td>
-        <td><div class="btn-row nowrap">
+        <td><div class="btn-row user-actions">
+          ${fixedPerms(u.rol) ? "" : `<button class="btn btn-ghost" type="button" data-perms="${u.id}">${icon("list-checks")}Permisos</button>`}
           <button class="btn btn-ghost" type="button" data-pass="${u.id}">${icon("key-round")}Contraseña</button>
           ${u.id === me.id ? "" : `<button class="btn ${u.activo ? "btn-danger" : "btn-secondary"}" type="button" data-toggle="${u.id}">${icon(u.activo ? "user-x" : "user-check")}${u.activo ? "Desactivar" : "Reactivar"}</button>`}
         </div></td></tr>`).join("");
-      main.querySelectorAll("[data-rol]").forEach(s => s.addEventListener("change", () => change(+s.dataset.rol, { rol: s.value }, "Rol actualizado")));
-      main.querySelectorAll("[data-toggle]").forEach(b => b.addEventListener("click", () => { const u = list.find(x => x.id === +b.dataset.toggle); change(u.id, { activo: !u.activo }, u.activo ? "Cuenta desactivada" : "Cuenta reactivada"); }));
+      main.querySelectorAll("[data-rol]").forEach(s => s.addEventListener("change", () =>
+        change(+s.dataset.rol, { rol: s.value }, "Rol actualizado", "tiene los permisos de su nuevo rol y se cerraron sus sesiones abiertas.")));
+      main.querySelectorAll("[data-toggle]").forEach(b => b.addEventListener("click", () => {
+        const u = list.find(x => x.id === +b.dataset.toggle);
+        change(u.id, { activo: !u.activo }, u.activo ? "Cuenta desactivada" : "Cuenta reactivada", u.activo ? "ya no puede entrar y se cerraron sus sesiones." : "ya puede volver a entrar.");
+      }));
       main.querySelectorAll("[data-pass]").forEach(b => b.addEventListener("click", () => resetDialog(list.find(x => x.id === +b.dataset.pass))));
+      main.querySelectorAll("[data-perms]").forEach(b => b.addEventListener("click", () => permDialog(list.find(x => x.id === +b.dataset.perms))));
+      refreshIcons();
+    }
+    function logRows(items) {
+      document.getElementById("logBody").innerHTML = items.length ? items.map(a => {
+        const [k, text] = RESULT[a.resultado] || ["neutral", a.resultado];
+        return `<tr><td>${fmt.date(a.t)}</td><td>${esc(a.cuenta)}${a.nombre ? `<span class="sub">${esc(a.nombre)}</span>` : ""}</td><td>${badge(k, text)}</td><td>${esc(a.ip || "—")}</td></tr>`;
+      }).join("") : `<tr><td colspan="4" class="empty">Todavía no hay inicios de sesión registrados.</td></tr>`;
       refreshIcons();
     }
     async function load() {
-      try { list = await VA.api.users.list(); if (document.getElementById("usBody")) rows(); }
-      catch (err) { const b = document.getElementById("usBody"); if (b) b.innerHTML = `<tr><td colspan="6" class="empty">${esc(err.message)}</td></tr>`; }
+      try {
+        const [l, c, log] = await Promise.all([VA.api.users.list(), cat ? cat : VA.api.users.catalog(), VA.api.users.accesses()]);
+        list = l; cat = c;
+        if (!document.getElementById("usBody")) return;               // ya se salió de la vista
+        rows(); logRows(log);
+        if (document.getElementById("nuPerms").querySelector(".muted") || !document.getElementById("nuPerms").children.length) newPerms();
+      } catch (err) {
+        ["usBody", "logBody"].forEach(id => { const b = document.getElementById(id); if (b) b.innerHTML = `<tr><td colspan="7" class="empty">${esc(err.message)}</td></tr>`; });
+      }
     }
-    async function change(id, data, okTitle) {
+    async function change(id, data, okTitle, okMsg) {
       try {
         const u = await VA.api.users.update(id, data);
         Object.assign(list.find(x => x.id === id), u);
-        toast("ok", okTitle, `${u.nombre}: el cambio aplica de inmediato y cierra sus sesiones abiertas.`);
+        toast("ok", okTitle, `${u.nombre} ${okMsg}`);
+        VA.ui.closeDrawer(true);
       } catch (err) { fail(err); }
       rows();
+    }
+    function permDialog(u) {
+      const deps = C.roles[u.rol].deps.map(d => C.dependencias[d].label).join(", ");
+      const dlg = VA.ui.openDrawer(`
+        <div class="drawer-head"><div><div class="muted small">${esc(C.roles[u.rol].label)} · ${esc(u.cuenta)}</div><h2 style="font-size:1.35rem">Permisos de ${esc(u.nombre)}</h2></div>
+          <button class="btn btn-ghost btn-icon" data-close aria-label="Cerrar">${icon("x")}</button></div>
+        <form class="drawer-body form-grid" id="pmForm" novalidate>
+          <p class="small muted" style="margin:0">Resumen, Mapa y Transparencia siempre están disponibles.${deps ? ` Los casos que ve y atiende son los de ${esc(deps)}.` : ""}
+            El cambio aplica al momento: su menú se actualiza solo.</p>
+          <fieldset class="perm-set"><legend>Qué puede usar</legend><div class="perm-grid one">${permGrid("pm", u.rol, u.permisos)}</div></fieldset>
+          <div class="btn-row"><button class="btn btn-primary" type="submit">${icon("save")}Guardar permisos</button>
+            <button class="btn btn-secondary" type="button" id="pmReset">${icon("rotate-ccw")}Usar los del rol</button></div>
+        </form>`, { label: "Permisos de " + u.nombre });
+      dlg.querySelector("#pmForm").addEventListener("submit", e => {
+        e.preventDefault();
+        change(u.id, { permisos: checkedIn(dlg) }, "Permisos actualizados", "ya ve solo los módulos marcados.");
+      });
+      dlg.querySelector("#pmReset").addEventListener("click", () => change(u.id, { permisos_del_rol: true }, "Permisos del rol", `volvió a los permisos de ${C.roles[u.rol].label}.`));
     }
     function resetDialog(u) {
       const dlg = VA.ui.openDrawer(`
@@ -757,7 +1167,11 @@
         e.preventDefault();
         const err = dlg.querySelector("#rpErr"), val = dlg.querySelector("#rpClave").value;
         if (val.length < 8) { err.textContent = "La contraseña debe tener al menos 8 caracteres."; err.hidden = false; return; }
-        try { await VA.api.users.update(u.id, { clave: val }); VA.ui.closeDrawer(); toast("ok", "Contraseña actualizada", `${u.nombre} debe entrar con la nueva contraseña.`); }
+        try {
+          const nu = await VA.api.users.update(u.id, { clave: val });
+          Object.assign(u, nu); VA.ui.closeDrawer(); rows();
+          toast("ok", "Contraseña temporal asignada", u.id === me.id ? "Tu contraseña quedó cambiada." : `${u.nombre} entra con ella y el sistema le pide crear una propia.`);
+        }
         catch (ex) { err.textContent = ex.message; err.hidden = false; }
       });
     }
@@ -765,6 +1179,7 @@
       e.preventDefault();
       const err = document.getElementById("nuErr"), v = id => document.getElementById(id).value.trim();
       const data = { nombre: v("nuNombre"), cuenta: v("nuCuenta"), rol: v("nuRol"), clave: document.getElementById("nuClave").value };
+      if (cat && !fixedPerms(data.rol)) data.permisos = checkedIn(document.getElementById("nuPerms"));
       err.hidden = true;
       const bad = data.nombre.length < 2 ? ["nuNombre", "Escribe el nombre de la persona."] : !data.cuenta ? ["nuCuenta", "Escribe un correo o un teléfono de 10 dígitos."]
         : data.clave.length < 8 ? ["nuClave", "La contraseña debe tener al menos 8 caracteres."] : null;
@@ -772,7 +1187,8 @@
       try {
         const u = await VA.api.users.create(data);
         e.target.reset();
-        toast("ok", "Cuenta creada", `${u.nombre} ya puede entrar como ${C.roles[u.rol].label}.`);
+        newPerms();
+        toast("ok", "Cuenta creada", `${u.nombre} ya puede entrar como ${C.roles[u.rol].label}.` + (u.cambiar_clave ? " Al hacerlo, el sistema le pedirá cambiar la contraseña temporal." : ""));
         await load();
       } catch (ex) { err.textContent = ex.message; err.hidden = false; }
     });
@@ -851,5 +1267,5 @@
     return {};
   }
 
-  VA.views = { resumen, mapa, casos, nodos, reportes, recoleccion, prediccion, transparencia, usuarios, config, openCase, passwordDialog };
+  VA.views = { resumen, mapa, estacion, casos, nodos, reportes, recoleccion, prediccion, transparencia, usuarios, config, openCase, passwordDialog };
 })();

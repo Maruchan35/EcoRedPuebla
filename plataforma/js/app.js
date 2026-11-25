@@ -12,18 +12,34 @@
   const MOCK = VA.api.USE_MOCK;
 
   // ---------- Estado global ----------
-  VA.state = { role: "publico", live: true, focus: null };
+  VA.state = { role: "publico", perms: [], live: true, focus: null };
+  VA.can = permiso => VA.state.perms.includes(permiso);
   let current = null, currentName = "";
   const lastAnom = {};                    // última anomalía por nodo (demo sin servidor)
   let caseSeq = 20, sampleSeq = 20;
 
-  const navOf = role => C.roles[role].nav.filter(k => !MOCK || !C.serverOnly.includes(k));
+  // Vistas que esta persona puede abrir: las públicas y las de sus permisos
+  const navOf = () => C.navOrder.filter(k => (!C.nav[k].permiso || VA.can(C.nav[k].permiso)) && (!MOCK || !C.serverOnly.includes(k)));
 
-  // ---------- Menú según el rol ----------
+  // Rol y permisos de quien mira: con servidor salen de su sesión (y pueden cambiar si Administración
+  // los ajusta); en la demo sin servidor, del selector "Ver como". Devuelve true si algo cambió.
+  function applySession() {
+    const before = VA.state.role + "|" + VA.state.perms.join(",");
+    if (!MOCK) {
+      const u = VA.session.user;
+      VA.state.role = u && C.roles[u.rol] ? u.rol : "publico";
+      VA.state.perms = u ? (u.permisos || []).slice() : [];
+    } else {
+      VA.state.perms = C.roles[VA.state.role].permisos.slice();
+    }
+    return before !== VA.state.role + "|" + VA.state.perms.join(",");
+  }
+
+  // ---------- Menú según los permisos ----------
   function renderNav() {
     const r = C.roles[VA.state.role];
-    const pending = S().cases.filter(c => r.deps.includes(c.dep) && c.status === "Nuevo").length;
-    document.getElementById("nav").innerHTML = navOf(VA.state.role).map(k => {
+    const pending = VA.can("casos") ? S().cases.filter(c => r.deps.includes(c.dep) && c.status === "Nuevo").length : 0;
+    document.getElementById("nav").innerHTML = navOf().map(k => {
       const n = C.nav[k];
       const b = k === "casos" && pending ? `<span class="nav-badge" aria-label="${pending} casos nuevos">${pending}</span>` : "";
       return `<li><a href="#/${k}" data-route="${k}">${icon(n.icon)}<span>${esc(n.label)}</span>${b}</a></li>`;
@@ -39,13 +55,18 @@
   // ---------- Rutas (#/vista/parámetro) ----------
   function route() {
     const [, name = "resumen", param] = (location.hash || "#/resumen").split("/");
-    const allowed = navOf(VA.state.role);
+    const allowed = navOf();
     // Un enlace a una vista de gobierno sin sesión (por ejemplo desde una notificación) lleva al inicio de sesión
     if (!MOCK && !VA.session.user && C.nav[name] && !allowed.includes(name)) {
       location.href = "login.html?ir=" + encodeURIComponent(location.hash);
       return;
     }
     const view = allowed.includes(name) && VA.views[name] ? name : "resumen";
+    if (view !== name) {
+      // La dirección debe decir lo que se ve; si no, un enlace a una sección sin permiso se queda en la barra
+      history.replaceState(null, "", "#/" + view);
+      if (C.nav[name]) toast("warn", "Sin acceso a esa sección", `Tu cuenta no tiene permiso para «${C.nav[name].label}». Te mostramos el resumen.`);
+    }
     // Mismo módulo de casos: solo abrir el detalle sin redibujar la lista
     if (view === "casos" && currentName === "casos" && param) { VA.views.openCase(param); return; }
     if (current && current.destroy) current.destroy();
@@ -67,7 +88,9 @@
   function onMsg(msg) {
     if (msg.tipo === "sync") {                  // con servidor: los datos ya se recargaron
       (msg.avisos || []).slice(0, 3).forEach(a => toast(a.kind || "info", a.title, a.msg, a.kind === "crit" ? 9000 : 6500));
-      if (msg.origen === "ajustes" || msg.origen === "reinicio") { currentName = ""; renderNav(); route(); return; }
+      const changed = applySession();
+      if (changed) toast("info", "Tus permisos cambiaron", "Administración ajustó lo que puedes ver; el menú ya está actualizado.");
+      if (changed || msg.origen === "ajustes" || msg.origen === "reinicio") { currentName = ""; renderNav(); route(); return; }
     }
     else if (msg.tipo === "lectura") handleReading(msg);
     else if (msg.tipo === "barrera") handleBarrier(msg);
@@ -130,7 +153,7 @@
     const loc = E.localize(nodeId, recentIds);
     const kind = E.classifyDischarge(r, node.base);
     const t = loc.tramo && S().tramos.find(x => x.id === loc.tramo);
-    const mid = t ? t.points[1] : [node.lat, node.lng];
+    const mid = t ? t.points[Math.floor(t.points.length / 2)] : [node.lat, node.lng];
     // Reportes cerca del tramo probable o del nodo que detectó (sin duplicar)
     const near = [...new Map([...E.fuseReports(mid[0], mid[1], S().reports, now), ...E.fuseReports(node.lat, node.lng, S().reports, now)].map(x => [x.id, x])).values()];
     const conf = E.confidence(anom, near);
@@ -233,6 +256,7 @@
       sel.value = VA.state.role;
       sel.addEventListener("change", () => {
         VA.state.role = sel.value;
+        applySession();
         try { localStorage.setItem("va-role", sel.value); } catch (e) { /* sin almacenamiento */ }
         renderNav(); currentName = ""; route();
         toast("info", "Vista cambiada", "Ahora ves la plataforma como " + C.roles[VA.state.role].label + ".");
@@ -282,9 +306,8 @@
       let saved = "admin";
       try { saved = localStorage.getItem("va-role") || "admin"; } catch (e) { /* almacenamiento no disponible */ }
       VA.state.role = C.roles[saved] ? saved : "admin";
-    } else {
-      VA.state.role = VA.session.user && C.roles[VA.session.user.rol] ? VA.session.user.rol : "publico";
     }
+    applySession();
     document.getElementById("footMode").textContent = MOCK ? "Demo sin servidor · datos simulados" : VA.session.demo ? "Datos de demostración" : "";
     renderUserArea();
     renderNav();

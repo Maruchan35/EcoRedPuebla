@@ -95,23 +95,44 @@
 
   // ---------- Índice de calidad y pronóstico ----------
   function indexStatus(v) { return v >= 70 ? "ok" : v >= 40 ? "warn" : "crit"; }
+  // Pronóstico del índice diario: Holt-Winters aditivo con tendencia amortiguada y estacionalidad semanal
+  // (la industria descarga más en días hábiles). Es un modelo explicable: nivel + tendencia + efecto del día.
+  // La banda sale de los errores de un día adelante que tuvo el propio modelo con el historial (80%).
   function forecast(series, days) {
-    const last = series.slice(-10).map(p => p.v);
-    const n = last.length, xs = last.map((_, i) => i);
-    const mx = xs.reduce((a, b) => a + b, 0) / n, my = last.reduce((a, b) => a + b, 0) / n;
-    const slope = xs.reduce((s, x, i) => s + (x - mx) * (last[i] - my), 0) / xs.reduce((s, x) => s + (x - mx) ** 2, 0);
-    const icpt = my - slope * mx;
-    const resid = last.map((y, i) => y - (icpt + slope * i));
-    const sd = Math.sqrt(resid.reduce((s, r) => s + r * r, 0) / Math.max(1, n - 2)) || 2;
-    const out = [];
-    const t0 = series[series.length - 1].t;
-    for (let h = 1; h <= days; h++) {
-      const y = icpt + slope * (n - 1 + h);
-      const band = 1.96 * sd * Math.sqrt(1 + h / 3);
-      out.push({ t: t0 + h * 86400000, v: Math.round(Math.max(0, Math.min(100, y))),
-        lo: Math.round(Math.max(0, y - band)), hi: Math.round(Math.min(100, y + band)) });
+    const DAY = 86400000, m = 7, alfa = 0.35, beta = 0.08, gama = 0.25, fi = 0.9;
+    const pts = series.slice(-90);
+    const y = pts.map(p => p.v), n = y.length;
+    const z80 = 1.2816;
+    if (n < 2 * m) {                                     // poco historial: promedio con banda ancha
+      const avg = y.reduce((a, b) => a + b, 0) / n, t0 = pts[n - 1].t;
+      return { model: "promedio", slope: 0, points: Array.from({ length: days }, (_, k) => ({ t: t0 + (k + 1) * DAY, v: Math.round(avg), lo: Math.round(avg - 12), hi: Math.round(avg + 12) })) };
     }
-    return { points: out, slope: +slope.toFixed(2) };
+    // Arranque: nivel = promedio de la primera semana; estacionalidad = desviación de cada día respecto a su semana
+    let nivel = y.slice(0, m).reduce((a, b) => a + b, 0) / m;
+    let tend = (y.slice(m, 2 * m).reduce((a, b) => a + b, 0) / m - nivel) / m;
+    const est = y.slice(0, m).map(v => v - nivel);
+    const errores = [];
+    for (let i = m; i < n; i++) {
+      const s = est[i % m], pred = nivel + fi * tend + s;
+      errores.push(y[i] - pred);
+      const nivelAnt = nivel;
+      nivel = alfa * (y[i] - s) + (1 - alfa) * (nivelAnt + fi * tend);
+      tend = beta * (nivel - nivelAnt) + (1 - beta) * fi * tend;
+      est[i % m] = gama * (y[i] - nivel) + (1 - gama) * s;
+    }
+    const rec = errores.slice(-30);
+    const sd = Math.sqrt(rec.reduce((a, e) => a + e * e, 0) / Math.max(1, rec.length)) || 3;
+    const out = [], t0 = pts[n - 1].t;
+    let amort = 0;
+    for (let h = 1; h <= days; h++) {
+      amort += Math.pow(fi, h);
+      const v = nivel + amort * tend + est[(n - 1 + h) % m];
+      const banda = z80 * sd * Math.sqrt(1 + 0.35 * (h - 1));
+      out.push({ t: t0 + h * DAY, v: Math.round(Math.max(0, Math.min(100, v))),
+        lo: Math.round(Math.max(0, v - banda)), hi: Math.round(Math.min(100, v + banda)) });
+    }
+    return { model: "holt-winters", points: out, slope: +(tend * 7).toFixed(1), sd: +sd.toFixed(1),
+      weekly: est.map(v => +v.toFixed(1)), level: +nivel.toFixed(1) };
   }
 
   const semLabel = { ok: "Bien", warn: "Atención", crit: "Crítico", off: "Sin datos" };

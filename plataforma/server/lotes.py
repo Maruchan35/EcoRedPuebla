@@ -8,21 +8,28 @@ Formato del CSV (lo escribe el firmware del nodo; ver docs/formato-lote.md):
 Huella encadenada (opcional): hash_i = SHA-256( hash_{i-1} + "|" + "t,ph,cond,turb,color,temp,nivel" )
 con el texto tal cual está en el archivo y hash_0 = id del nodo. Si alguien cambia una fila,
 todas las huellas siguientes dejan de coincidir.
+
+Los nodos con estación de tratamiento agregan columnas opcionales del proceso (ver ESTACION); no entran en
+la huella, así un archivo de un nodo sin estación y uno con estación se validan igual.
 """
 import csv
 import hashlib
 import io
 import json
-import random
 from datetime import datetime
 
 from .motor import TZ
+from .simulacion import EVENTOS, simular  # noqa: F401  (el generador vive en simulacion.py)
 
 MAX_BYTES = 5 * 1024 * 1024
 MAX_FILAS = 60000
 MEDIDAS = ("ph", "cond", "turb", "color", "temp", "nivel")
+# Estación piloto: caudal (L/s), salida tratada, lodos del sedimentador (%), presión de filtros (kPa), panel solar (W)
+ESTACION = ("caudal", "turb_sal", "color_sal", "cond_sal", "ph_sal", "lodos", "dp_filtro", "solar")
 # Fuera de estos rangos físicos el valor se descarta (sonda desconectada o dañada)
-RANGOS = {"ph": (0, 14), "cond": (0, 100000), "turb": (0, 10000), "color": (0, 1000), "temp": (-5, 60), "nivel": (0, 20)}
+RANGOS = {"ph": (0, 14), "cond": (0, 100000), "turb": (0, 10000), "color": (0, 1000), "temp": (-5, 60), "nivel": (0, 20),
+          "caudal": (0, 50), "turb_sal": (0, 10000), "color_sal": (0, 1000), "cond_sal": (0, 100000), "ph_sal": (0, 14),
+          "lodos": (0, 100), "dp_filtro": (0, 500), "solar": (0, 2000)}
 ALIAS = {"fecha_hora": "t", "fecha": "t", "timestamp": "t", "hora": "t", "conductividad": "cond", "tds": "cond",
          "turbidez": "turb", "color620": "color", "temperatura": "temp", "bat": "bateria", "batería": "bateria",
          "folio": "muestra", "huella": "hash"}
@@ -109,6 +116,10 @@ def leer_csv(contenido: bytes, nodo_id: str, ahora_ms: int) -> dict:
         bat = _numero(crudo.get("bateria"), punto_y_coma)
         fila["bateria"] = bat if bat is not None and 0 <= bat <= 100 else None
         fila["muestra"] = (crudo.get("muestra") or "").strip()[:20] or None
+        for m in ESTACION:
+            if m in crudo:
+                v = _numero(crudo.get(m), punto_y_coma)
+                fila[m] = v if v is not None and RANGOS[m][0] <= v <= RANGOS[m][1] else None
         filas.append(fila)
     if not filas:
         raise ValueError("Ninguna fila del archivo tiene fecha y mediciones válidas.")
@@ -117,61 +128,22 @@ def leer_csv(contenido: bytes, nodo_id: str, ahora_ms: int) -> dict:
     return {"filas": filas, "invalidas": invalidas, "integridad": integridad}
 
 
-# ---------- Generador (demostración y archivo de ejemplo para el equipo de firmware) ----------
-EVENTOS = {
-    # factores sobre el valor normal del sitio mientras dura el evento
-    "descarga": {"ph": 1.9, "cond": 2.7, "turb": 1.6, "color": 3.2, "nivel": 0.0, "min": 12},
-    "crecida": {"ph": 0.0, "cond": 0.9, "turb": 2.4, "color": 1.0, "nivel": 1.9, "min": 30},
-}
-
-
-def simular(base: dict, desde_ms: int, hasta_ms: int, evento: str = "normal", bateria: int = 80, folio: str = "", semilla=None) -> list:
-    """Lecturas como las que guardaría el nodo: cada 10 min, y cada minuto mientras detecta una anomalía."""
-    rng = random.Random(semilla)
-    ev = EVENTOS.get(evento)
-    minuto, paso = 60 * 1000, 10 * 60 * 1000
-    fin_ev = hasta_ms - 10 * minuto
-    ini_ev = fin_ev - ev["min"] * minuto if ev else None
-    tiempos, t = [], desde_ms
-    while t <= hasta_ms:
-        tiempos.append(t)
-        if ev and ini_ev <= t < fin_ev:
-            t += minuto                                        # muestreo rápido mientras dura la anomalía
-        elif ev and t < ini_ev < t + paso:
-            t = ini_ev                                         # el nodo cambia de ritmo justo al detectar
-        else:
-            t += paso
-    filas, folio_usado = [], False
-    for t in tiempos:
-        en = bool(ev) and ini_ev <= t < fin_ev
-        f = ev if en else {"ph": 0.0, "cond": 1.0, "turb": 1.0, "color": 1.0, "nivel": 0.0}
-        fila = {
-            "t": t,
-            "ph": round(base["ph"] + f["ph"] + rng.gauss(0, 0.06), 2),
-            "cond": round(base["cond"] * f["cond"] + rng.gauss(0, base["cond"] * 0.025)),
-            "turb": max(1, round(base["turb"] * f["turb"] + rng.gauss(0, base["turb"] * 0.06))),
-            "color": round(max(0.2, base["color"] * f["color"] + rng.gauss(0, 0.12)), 2),
-            "temp": round(base["temp"] + rng.gauss(0, 0.15), 1),
-            "nivel": round(base["nivel"] + f["nivel"] + rng.gauss(0, 0.02), 2),
-            "bateria": bateria, "muestra": None,
-        }
-        if en and evento == "descarga" and folio and not folio_usado and t >= ini_ev + minuto:
-            fila["muestra"], folio_usado = folio, True         # el carrusel llena un frasco al confirmar la anomalía
-        filas.append(fila)
-    return filas
-
-
+# ---------- Archivo como lo escribe el nodo (también para la demo y el archivo de ejemplo) ----------
 def a_csv(nodo_id: str, filas: list) -> str:
-    """Escribe el archivo como lo haría el nodo, con la huella encadenada."""
+    """Escribe el archivo como lo haría el nodo, con la huella encadenada. Si las filas traen datos de la
+    estación de tratamiento, agrega sus columnas antes de la huella."""
     salida = io.StringIO()
     w = csv.writer(salida, lineterminator="\n")
-    w.writerow(("t",) + MEDIDAS + ("bateria", "muestra", "hash"))
+    con_estacion = any(f.get("caudal") is not None for f in filas)
+    extra = ESTACION if con_estacion else ()
+    w.writerow(("t",) + MEDIDAS + ("bateria", "muestra") + extra + ("hash",))
     previa = nodo_id
     for f in filas:
         crudo = {"t": datetime.fromtimestamp(f["t"] / 1000, TZ).isoformat(timespec="seconds")}
         crudo.update({m: "" if f[m] is None else str(f[m]) for m in MEDIDAS})
         previa = huella(previa, crudo)
-        w.writerow([crudo["t"]] + [crudo[m] for m in MEDIDAS] + [f.get("bateria") if f.get("bateria") is not None else "", f.get("muestra") or "", previa])
+        w.writerow([crudo["t"]] + [crudo[m] for m in MEDIDAS] + [f.get("bateria") if f.get("bateria") is not None else "", f.get("muestra") or ""]
+                   + ["" if f.get(m) is None else f[m] for m in extra] + [previa])
     return salida.getvalue()
 
 
@@ -180,8 +152,9 @@ def csv_abierto(filas: list) -> str:
     la huella original solo vale para el archivo de la microSD."""
     salida = io.StringIO()
     w = csv.writer(salida, lineterminator="\n")
-    w.writerow(("t",) + MEDIDAS + ("anomalia",))
+    extra = ESTACION if any(f["caudal"] is not None for f in filas if "caudal" in f.keys()) else ()
+    w.writerow(("t",) + MEDIDAS + extra + ("anomalia",))
     for f in filas:
         w.writerow([datetime.fromtimestamp(f["t"] / 1000, TZ).isoformat(timespec="seconds")]
-                   + ["" if f[m] is None else f[m] for m in MEDIDAS] + [" ".join(json.loads(f["anom"] or "[]"))])
+                   + ["" if f[m] is None else f[m] for m in MEDIDAS + extra] + [" ".join(json.loads(f["anom"] or "[]"))])
     return salida.getvalue()

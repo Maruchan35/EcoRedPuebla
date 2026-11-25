@@ -48,32 +48,43 @@ VA.config = {
   // Días sin visita de Protección Civil tras los que un nodo se muestra en gris
   staleDays: 7,
 
-  // ---------- Roles: qué menú ve cada quien y qué casos le tocan ----------
-  // El servidor decide qué datos entrega a cada rol; aquí solo se arma el menú.
-  roles: {
-    publico:   { label: "Ciudadanía",          deps: [],                                   nav: ["resumen", "mapa", "transparencia"] },
-    ciudadano: { label: "Ciudadanía",          deps: [],                                   nav: ["resumen", "mapa", "transparencia"] },
-    ambiental: { label: "Autoridad ambiental", deps: ["ambiental"],                        nav: ["resumen", "mapa", "casos", "nodos", "reportes", "prediccion", "transparencia"] },
-    limpia:    { label: "Limpia municipal",    deps: ["limpia", "brigadas"],               nav: ["resumen", "mapa", "casos", "reportes", "transparencia"] },
-    pc:        { label: "Protección Civil",    deps: ["pc"],                               nav: ["resumen", "mapa", "casos", "nodos", "recoleccion", "prediccion", "transparencia"] },
-    tec:       { label: "Tecnológicos",        deps: [],                                   nav: ["resumen", "mapa", "nodos", "recoleccion", "transparencia"] },
-    admin:     { label: "Administración",      deps: ["ambiental", "limpia", "pc", "brigadas"], nav: ["resumen", "mapa", "casos", "nodos", "reportes", "recoleccion", "prediccion", "transparencia", "usuarios", "config"] }
-  },
-  // Vistas que necesitan el servidor (no aparecen al abrir index.html con doble clic)
-  serverOnly: ["recoleccion", "usuarios"],
-  // Roles que pueden validar o descartar reportes de la app
-  reportEditors: ["ambiental", "limpia", "pc", "admin"],
+  // Velocidad del agua del Atoyac (m/s), lenta en estiaje y rápida en crecida: da cuánto tarda en recorrer
+  // cada tramo. Igual que VEL_MIN_MS y VEL_MAX_MS en server/motor.py (con servidor, el tiempo lo manda él).
+  rio: { velMin: 0.3, velMax: 2.0 },
 
+  // ---------- Roles y permisos ----------
+  // Con servidor, los permisos de cada persona llegan con su sesión: el servidor los decide y los hace
+  // cumplir en cada petición, y Administración puede ajustarlos por persona. Estos juegos por rol solo
+  // se usan en la vista pública y en la demo sin servidor. deps = casos de qué dependencias atiende.
+  roles: {
+    publico:   { label: "Ciudadanía",          staff: false, deps: [],                      permisos: [] },
+    ciudadano: { label: "Ciudadanía",          staff: false, deps: [],                      permisos: [] },
+    ambiental: { label: "Autoridad ambiental", staff: true,  deps: ["ambiental"],           permisos: ["casos", "reportes", "validar", "nodos", "prediccion"] },
+    limpia:    { label: "Limpia municipal",    staff: true,  deps: ["limpia", "brigadas"],  permisos: ["casos", "reportes", "validar", "barreras"] },
+    pc:        { label: "Protección Civil",    staff: true,  deps: ["pc"],                  permisos: ["casos", "validar", "nodos", "recoleccion", "barreras", "prediccion"] },
+    tec:       { label: "Tecnológicos",        staff: true,  deps: [],                      permisos: ["nodos", "recoleccion"] },
+    admin:     { label: "Administración",      staff: true,  deps: ["ambiental", "limpia", "pc", "brigadas"],
+                 permisos: ["casos", "reportes", "validar", "nodos", "recoleccion", "barreras", "prediccion", "usuarios", "config"] }
+  },
+  // Nombre corto de cada permiso (la descripción larga la manda el servidor)
+  permisoLabels: { casos: "Casos", reportes: "Reportes de la app", validar: "Validar reportes", nodos: "Nodos", recoleccion: "Recolección",
+    barreras: "Barreras", prediccion: "Predicción", usuarios: "Usuarios", config: "Configuración" },
+  // Vistas que necesitan el servidor (no aparecen al abrir index.html con doble clic)
+  serverOnly: ["recoleccion", "usuarios", "estacion"],
+
+  // Orden del menú. `permiso`: el que pide cada vista; sin él, la vista es pública.
+  navOrder: ["resumen", "mapa", "estacion", "casos", "nodos", "reportes", "recoleccion", "prediccion", "transparencia", "usuarios", "config"],
   nav: {
     resumen:       { label: "Resumen",            icon: "layout-dashboard" },
     mapa:          { label: "Mapa",               icon: "map" },
-    casos:         { label: "Casos",              icon: "folder-open" },
-    nodos:         { label: "Nodos",              icon: "activity" },
-    reportes:      { label: "Reportes de la app", icon: "smartphone" },
-    recoleccion:   { label: "Recolección",        icon: "hard-drive-download" },
-    prediccion:    { label: "Predicción",         icon: "trending-up" },
+    estacion:      { label: "Estación piloto",    icon: "factory" },
+    casos:         { label: "Casos",              icon: "folder-open",         permiso: "casos" },
+    nodos:         { label: "Nodos",              icon: "activity",            permiso: "nodos" },
+    reportes:      { label: "Reportes de la app", icon: "smartphone",          permiso: "reportes" },
+    recoleccion:   { label: "Recolección",        icon: "hard-drive-download", permiso: "recoleccion" },
+    prediccion:    { label: "Predicción",         icon: "trending-up",         permiso: "prediccion" },
     transparencia: { label: "Transparencia",      icon: "scale" },
-    usuarios:      { label: "Usuarios",           icon: "users" },
-    config:        { label: "Configuración y demo", icon: "sliders-horizontal" }
+    usuarios:      { label: "Usuarios",           icon: "users",               permiso: "usuarios" },
+    config:        { label: "Configuración y demo", icon: "sliders-horizontal", permiso: "config" }
   }
 };

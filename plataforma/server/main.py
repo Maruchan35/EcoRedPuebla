@@ -14,7 +14,7 @@ import re
 import secrets
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile, WebSocket, WebSocketDisconnect
@@ -44,12 +44,15 @@ AREA = (17.8, 20.9, -99.2, -96.7)        # caja del estado de Puebla y alrededor
 app = FastAPI(title="Vigía Atoyac", version="0.2.0", docs_url="/api/docs", redoc_url=None, openapi_url="/api/openapi.json",
               description="API de la plataforma central: sesión, reportes de la app, casos y carga por lote de los nodos.")
 con = conectar()
-semilla.catalogo(con)
+catalogo_nuevo = semilla.catalogo(con)                  # True si se creó o si cambiaron posiciones de nodos y tramos
 if DEMO:
     semilla.cuentas_demo(con)
-    if not con.execute("SELECT 1 FROM lecturas LIMIT 1").fetchone():
+    # Los reportes y casos de la demo se ubican sobre el cauce: si el cauce cambió, se vuelven a generar
+    if catalogo_nuevo or not semilla.demo_al_dia(con):         # también si cambió la versión de los datos de demostración
+        print("[Vigía Atoyac] Generando 90 días de datos de demostración…")
         semilla.demostracion(con)
     print(f"[Vigía Atoyac] MODO DEMO: cuentas de prueba en {semilla.ARCHIVO_CUENTAS}. No usar así en un servidor público.")
+    print("[Vigía Atoyac] " + semilla.resumen_cuentas_demo())
 elif not semilla.admin_inicial(con):
     print("[Vigía Atoyac] No hay usuarios. Define VA_ADMIN_CUENTA y VA_ADMIN_CLAVE (8+ caracteres) y vuelve a iniciar.")
 
@@ -60,8 +63,10 @@ cuota_reportes = seguridad.Cuota(20, 3600)
 
 
 # ---------- Cabeceras de seguridad y caché ----------
-CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://server.arcgisonline.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://*.basemaps.cartocdn.com; "
-       "connect-src 'self' ws: wss:; font-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'")
+# Mapas sin API key: OpenFreeMap (calles, letras e íconos), Esri (satélite), Terrain Tiles de AWS (relieve 3D) y OpenStreetMap
+_MAPAS = "https://tiles.openfreemap.org https://server.arcgisonline.com https://s3.amazonaws.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org"
+CSP = (f"default-src 'self'; script-src 'self'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: {_MAPAS}; "
+       f"connect-src 'self' ws: wss: {_MAPAS}; font-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'")
 
 
 @app.middleware("http")
@@ -99,10 +104,21 @@ async def actual(request: Request) -> Optional[dict]:
         token, via = request.cookies[seguridad.COOKIE], "cookie"
     request.state.token = token
     fila = seguridad.usuario_de_token(con, token) if token else None
+    if not fila:
+        return None
     # Con cookie, todo lo que modifica datos exige una cabecera propia: otra página web no puede enviarla
-    if fila and via == "cookie" and request.method not in ("GET", "HEAD", "OPTIONS") and request.headers.get("x-va") != "1":
+    if via == "cookie" and request.method not in ("GET", "HEAD", "OPTIONS") and request.headers.get("x-va") != "1":
         raise HTTPException(403, "Solicitud no permitida.")
-    return dict(fila) if fila else None
+    # Contraseña temporal (la dio Administración): hasta cambiarla solo puede ver quién es, cambiarla o salir
+    if fila["cambiar_clave"] and request.url.path not in _LIBRE_CON_CLAVE_TEMPORAL:
+        raise HTTPException(403, "Antes de continuar cambia la contraseña temporal que te dio Administración.",
+                            headers={"X-VA-Accion": "cambiar-clave"})
+    u = dict(fila)
+    u["perm"] = seguridad.permisos_de(fila)
+    return u
+
+
+_LIBRE_CON_CLAVE_TEMPORAL = {"/api/auth/yo", "/api/auth/clave", "/api/auth/salir"}
 
 
 async def con_sesion(u: Optional[dict] = Depends(actual)) -> dict:
@@ -111,9 +127,10 @@ async def con_sesion(u: Optional[dict] = Depends(actual)) -> dict:
     return u
 
 
-def con_rol(*roles):
+def con_permiso(permiso: str):
+    """El servidor es quien decide: aunque alguien arme la petición a mano, sin el permiso no pasa."""
     async def dependencia(u: dict = Depends(con_sesion)) -> dict:
-        if u["rol"] not in roles:
+        if permiso not in u["perm"]:
             raise HTTPException(403, "Tu cuenta no tiene permiso para esto.")
         return u
     return dependencia
@@ -124,34 +141,13 @@ def solo_demo() -> None:
         raise HTTPException(404, "No disponible.")
 
 
-# Cabeceras que agrega cualquier intermediario (Cloudflare Tunnel, ngrok, un proxy inverso)
-_CABECERAS_DE_PROXY = ("x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "forwarded", "x-real-ip",
-                       "cf-connecting-ip", "cf-ray", "cdn-loop", "via")
-
-
-def es_local(request: Request) -> bool:
-    """La petición viene de un navegador en la misma computadora del servidor.
-    Tres candados, porque de esto depende la entrada rápida de demostración: la conexión sale de
-    esta máquina, no trae cabeceras de intermediario y la dirección escrita en el navegador es
-    localhost. Quien entra por un enlace público (túnel) no cumple ninguno de los dos últimos."""
-    if not request.client or request.client.host not in ("127.0.0.1", "::1"):
-        return False
-    if any(c in request.headers for c in _CABECERAS_DE_PROXY):
-        return False
-    try:
-        anfitrion = urlsplit("//" + request.headers.get("host", "")).hostname
-    except ValueError:
-        return False
-    return anfitrion in ("localhost", "127.0.0.1", "::1")
-
-
 def ip(request: Request) -> str:
     return request.client.host if request.client else "?"
 
 
 def quien(u: dict) -> str:
     etiqueta = seguridad.ROLES[u["rol"]]["label"]
-    return etiqueta if u.get("demo") else f"{etiqueta} ({u['nombre']})"
+    return f"{etiqueta} · {semilla.nombre_corto(u['nombre'])}"
 
 
 def fijar_sesion(request: Request, response: Response, fila, origen: str) -> dict:
@@ -200,7 +196,7 @@ async def ws_eventos(ws: WebSocket):
     token = autorizacion[7:].strip() if autorizacion[:7].lower() == "bearer " else ws.cookies.get(seguridad.COOKIE, "")
     fila = seguridad.usuario_de_token(con, token) if token else None
     await ws.accept()
-    canal.abiertos[ws] = fila["rol"] if fila else None
+    canal.abiertos[ws] = fila["rol"] if fila and not fila["cambiar_clave"] else None
     try:
         while True:
             await ws.receive_text()
@@ -249,8 +245,11 @@ class CambioClave(BaseModel):
     nueva: str = Field(..., max_length=128)
 
 
-class CuentaDemo(BaseModel):
-    cuenta: str
+def anotar_acceso(cuenta: str, resultado: str, request: Request, usuario_id: Optional[int] = None) -> None:
+    """Bitácora para Administración. Guarda la cuenta tal como se escribió (recortada) aunque no exista."""
+    con.execute("INSERT INTO accesos (t, usuario_id, cuenta, ip, resultado) VALUES (?, ?, ?, ?, ?)",
+                (ahora(), usuario_id, (cuenta or "")[:120], ip(request), resultado))
+    con.execute("DELETE FROM accesos WHERE t < ?", (ahora() - 180 * D,))       # se conservan seis meses
 
 
 @app.post("/api/auth/entrar", tags=["sesión"])
@@ -263,6 +262,7 @@ async def entrar(datos: Entrar, request: Request, response: Response):
     llave = f"{ip(request)}|{cuenta}"
     espera = max(intentos.espera(llave), intentos_ip.espera(ip(request)))
     if espera:
+        anotar_acceso(cuenta, "bloqueo", request)
         raise HTTPException(429, f"Demasiados intentos. Espera {espera} segundos e inténtalo de nuevo.", headers={"Retry-After": str(espera)})
     fila = con.execute("SELECT * FROM usuarios WHERE cuenta = ?", (cuenta,)).fetchone()
     if fila:
@@ -273,21 +273,11 @@ async def entrar(datos: Entrar, request: Request, response: Response):
     if not fila or not correcta or not fila["activo"]:
         intentos.fallo(llave)
         intentos_ip.fallo(ip(request))
+        anotar_acceso(cuenta, "desactivada" if fila and correcta else "clave", request, fila["id"] if fila else None)
         raise HTTPException(401, "La cuenta o la contraseña no son correctas.")
     intentos.exito(llave)
+    anotar_acceso(cuenta, "ok", request, fila["id"])
     return fijar_sesion(request, response, fila, datos.origen)
-
-
-@app.post("/api/auth/demo", tags=["sesión"])
-async def entrar_demo(datos: CuentaDemo, request: Request, response: Response):
-    """Entrada rápida con una cuenta de demostración. Solo en modo demo y solo desde la computadora del servidor."""
-    solo_demo()
-    if not es_local(request):
-        raise HTTPException(403, "La entrada rápida solo funciona en la computadora del servidor.")
-    fila = con.execute("SELECT * FROM usuarios WHERE cuenta = ? AND demo = 1 AND activo = 1", (datos.cuenta.strip().lower(),)).fetchone()
-    if not fila:
-        raise HTTPException(404, "Esa cuenta de demostración no existe.")
-    return fijar_sesion(request, response, fila, "web")
 
 
 @app.post("/api/auth/registro", status_code=201, tags=["sesión"])
@@ -318,11 +308,8 @@ async def salir(request: Request, response: Response, u: Optional[dict] = Depend
 
 @app.get("/api/auth/yo", tags=["sesión"])
 async def yo(request: Request, u: Optional[dict] = Depends(actual)):
-    d = {"usuario": modelos.usuario_api(u) if u else None, "demo": DEMO,
-         "roles": {k: v["label"] for k, v in seguridad.ROLES.items()}}
-    if DEMO and es_local(request):
-        d["cuentas_demo"] = [dict(f) for f in con.execute("SELECT cuenta, nombre, rol FROM usuarios WHERE demo = 1 AND activo = 1 ORDER BY id")]
-    return d
+    return {"usuario": modelos.usuario_api(u) if u else None, "demo": DEMO,
+            "roles": {k: v["label"] for k, v in seguridad.ROLES.items()}}
 
 
 @app.post("/api/auth/clave", tags=["sesión"])
@@ -330,13 +317,16 @@ async def cambiar_clave(datos: CambioClave, request: Request, u: dict = Depends(
     fila = con.execute("SELECT hash FROM usuarios WHERE id = ?", (u["id"],)).fetchone()
     if not await run_in_threadpool(seguridad.verificar_clave, datos.actual, fila["hash"]):
         raise HTTPException(403, "La contraseña actual no es correcta.")
+    if datos.nueva == datos.actual:
+        raise HTTPException(422, "La contraseña nueva debe ser distinta de la actual.")
     try:
         seguridad.validar_clave(datos.nueva, u["cuenta"])
     except ValueError as e:
         raise HTTPException(422, str(e))
-    con.execute("UPDATE usuarios SET hash = ? WHERE id = ?", (await run_in_threadpool(seguridad.crear_hash, datos.nueva), u["id"]))
+    con.execute("UPDATE usuarios SET hash = ?, cambiar_clave = 0 WHERE id = ?",
+                (await run_in_threadpool(seguridad.crear_hash, datos.nueva), u["id"]))
     seguridad.cerrar_sesiones_de(con, u["id"], excepto_token=request.state.token)
-    return {"ok": True}
+    return {"ok": True, "usuario": modelos.usuario_api(con.execute("SELECT * FROM usuarios WHERE id = ?", (u["id"],)).fetchone())}
 
 
 # =========================================================
@@ -347,6 +337,7 @@ class NuevoUsuario(BaseModel):
     cuenta: str = Field(..., max_length=120)
     rol: str
     clave: str = Field(..., max_length=128)
+    permisos: Optional[List[str]] = None          # None = los del rol
 
 
 class EditarUsuario(BaseModel):
@@ -354,15 +345,43 @@ class EditarUsuario(BaseModel):
     rol: Optional[str] = None
     activo: Optional[bool] = None
     clave: Optional[str] = Field(None, max_length=128)
+    permisos: Optional[List[str]] = None          # lista propia de módulos
+    permisos_del_rol: bool = False                # true = volver a los del rol
+
+
+def _permisos_propios(rol: str, lista) -> Optional[str]:
+    """JSON para la columna `permisos`, o None si coincide con los del rol (así sigue al rol si este cambia)."""
+    if lista is None or rol in ("admin", "ciudadano"):
+        return None
+    try:
+        limpia = seguridad.limpiar_permisos(lista)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    return None if set(limpia) == seguridad.PERMISOS_ROL.get(rol, set()) else json.dumps(limpia)
 
 
 @app.get("/api/usuarios", tags=["usuarios"])
-async def usuarios(u: dict = Depends(con_rol("admin"))):
+async def usuarios(u: dict = Depends(con_permiso("usuarios"))):
     return [modelos.usuario_api(f) for f in con.execute("SELECT * FROM usuarios ORDER BY activo DESC, rol, nombre")]
 
 
+@app.get("/api/permisos", tags=["usuarios"])
+async def catalogo_permisos(u: dict = Depends(con_permiso("usuarios"))):
+    """Lo que la pantalla de Usuarios necesita para armar las casillas de permisos."""
+    return {"permisos": seguridad.PERMISOS, "por_rol": {k: sorted(v) for k, v in seguridad.PERMISOS_ROL.items()},
+            "solo_admin": sorted(seguridad.SOLO_ADMIN), "roles": {k: v["label"] for k, v in seguridad.ROLES.items()}}
+
+
+@app.get("/api/accesos", tags=["usuarios"])
+async def bitacora_accesos(limite: int = 100, u: dict = Depends(con_permiso("usuarios"))):
+    """Últimos inicios de sesión, correctos y fallidos, con la dirección desde donde se intentaron."""
+    filas = con.execute("""SELECT a.t, a.cuenta, a.ip, a.resultado, us.nombre FROM accesos a LEFT JOIN usuarios us ON us.id = a.usuario_id
+                           ORDER BY a.t DESC, a.id DESC LIMIT ?""", (max(1, min(limite, 500)),)).fetchall()
+    return [dict(f) for f in filas]
+
+
 @app.post("/api/usuarios", status_code=201, tags=["usuarios"])
-async def crear_usuario(datos: NuevoUsuario, u: dict = Depends(con_rol("admin"))):
+async def crear_usuario(datos: NuevoUsuario, u: dict = Depends(con_permiso("usuarios"))):
     if datos.rol not in seguridad.ROLES:
         raise HTTPException(422, "Ese rol no existe.")
     try:
@@ -372,43 +391,61 @@ async def crear_usuario(datos: NuevoUsuario, u: dict = Depends(con_rol("admin"))
         raise HTTPException(422, str(e))
     if con.execute("SELECT 1 FROM usuarios WHERE cuenta = ?", (cuenta,)).fetchone():
         raise HTTPException(409, "Ya existe una cuenta con ese correo o teléfono.")
+    permisos = _permisos_propios(datos.rol, datos.permisos)
     hash_clave = await run_in_threadpool(seguridad.crear_hash, datos.clave)
-    con.execute("INSERT INTO usuarios (cuenta, nombre, rol, hash, creado) VALUES (?, ?, ?, ?, ?)",
-                (cuenta, datos.nombre.strip(), datos.rol, hash_clave, ahora()))
+    # El personal entra la primera vez con una contraseña temporal y el sistema le pide cambiarla
+    con.execute("INSERT INTO usuarios (cuenta, nombre, rol, hash, creado, permisos, cambiar_clave) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (cuenta, datos.nombre.strip(), datos.rol, hash_clave, ahora(), permisos, int(datos.rol != "ciudadano")))
     return modelos.usuario_api(con.execute("SELECT * FROM usuarios WHERE cuenta = ?", (cuenta,)).fetchone())
 
 
 @app.patch("/api/usuarios/{usuario_id}", tags=["usuarios"])
-async def editar_usuario(usuario_id: int, datos: EditarUsuario, u: dict = Depends(con_rol("admin"))):
+async def editar_usuario(usuario_id: int, datos: EditarUsuario, u: dict = Depends(con_permiso("usuarios"))):
     fila = con.execute("SELECT * FROM usuarios WHERE id = ?", (usuario_id,)).fetchone()
     if not fila:
         raise HTTPException(404, "La cuenta no existe.")
     if datos.rol is not None and datos.rol not in seguridad.ROLES:
         raise HTTPException(422, "Ese rol no existe.")
+    rol_final = datos.rol if datos.rol is not None else fila["rol"]
+    if (datos.permisos is not None or datos.permisos_del_rol) and rol_final in ("admin", "ciudadano"):
+        raise HTTPException(422, "Administración tiene todos los permisos y la ciudadanía ninguno: no se ajustan por persona.")
     pierde_admin = fila["rol"] == "admin" and fila["activo"] and (datos.activo is False or (datos.rol is not None and datos.rol != "admin"))
     if pierde_admin:
         if usuario_id == u["id"]:
             raise HTTPException(409, "No puedes quitarte a ti mismo el acceso de administración.")
         if con.execute("SELECT COUNT(*) AS c FROM usuarios WHERE rol = 'admin' AND activo = 1 AND id <> ?", (usuario_id,)).fetchone()["c"] == 0:
             raise HTTPException(409, "Debe quedar al menos una cuenta de administración activa.")
-    cierra = False
-    if datos.nombre is not None:
-        con.execute("UPDATE usuarios SET nombre = ? WHERE id = ?", (datos.nombre.strip(), usuario_id))
-    if datos.rol is not None and datos.rol != fila["rol"]:
-        con.execute("UPDATE usuarios SET rol = ? WHERE id = ?", (datos.rol, usuario_id))
-        cierra = True
-    if datos.activo is not None and bool(fila["activo"]) != datos.activo:
-        con.execute("UPDATE usuarios SET activo = ? WHERE id = ?", (int(datos.activo), usuario_id))
-        cierra = cierra or not datos.activo
     if datos.clave is not None:
         try:
             seguridad.validar_clave(datos.clave, fila["cuenta"])
         except ValueError as e:
             raise HTTPException(422, str(e))
-        con.execute("UPDATE usuarios SET hash = ? WHERE id = ?", (await run_in_threadpool(seguridad.crear_hash, datos.clave), usuario_id))
-        cierra = True
+    permisos_nuevos = _permisos_propios(rol_final, datos.permisos) if datos.permisos is not None else None
+    # El hash se calcula antes de abrir la transacción: mientras se espera, otras peticiones usan la misma conexión
+    hash_nuevo = await run_in_threadpool(seguridad.crear_hash, datos.clave) if datos.clave is not None else None
+    cierra = False
+    with transaccion(con):                                              # todo o nada
+        if datos.nombre is not None:
+            con.execute("UPDATE usuarios SET nombre = ? WHERE id = ?", (datos.nombre.strip(), usuario_id))
+        if datos.rol is not None and datos.rol != fila["rol"]:
+            # Al cambiar de rol se vuelve a los permisos del rol nuevo
+            con.execute("UPDATE usuarios SET rol = ?, permisos = NULL WHERE id = ?", (datos.rol, usuario_id))
+            cierra = True
+        if datos.permisos is not None:
+            con.execute("UPDATE usuarios SET permisos = ? WHERE id = ?", (permisos_nuevos, usuario_id))
+        elif datos.permisos_del_rol:
+            con.execute("UPDATE usuarios SET permisos = NULL WHERE id = ?", (usuario_id,))
+        if datos.activo is not None and bool(fila["activo"]) != datos.activo:
+            con.execute("UPDATE usuarios SET activo = ? WHERE id = ?", (int(datos.activo), usuario_id))
+            cierra = cierra or not datos.activo
+        if datos.clave is not None:
+            # Contraseña temporal: la persona tendrá que cambiarla al entrar (salvo que sea quien la escribe)
+            con.execute("UPDATE usuarios SET hash = ?, cambiar_clave = ? WHERE id = ?",
+                        (hash_nuevo, int(usuario_id != u["id"] and rol_final != "ciudadano"), usuario_id))
+            cierra = True
     if cierra and usuario_id != u["id"]:
         seguridad.cerrar_sesiones_de(con, usuario_id)                   # el cambio aplica de inmediato
+    await canal.emitir("usuarios")                                      # los paneles abiertos rehacen su menú
     return modelos.usuario_api(con.execute("SELECT * FROM usuarios WHERE id = ?", (usuario_id,)).fetchone())
 
 
@@ -416,7 +453,8 @@ async def editar_usuario(usuario_id: int, datos: EditarUsuario, u: dict = Depend
 # DATOS DE LA CUENCA
 # =========================================================
 def _deps(u) -> list:
-    return seguridad.ROLES[u["rol"]]["deps"] if u else []
+    """Dependencias cuyos casos ve completos y puede atender: las de su rol, si tiene el permiso de casos."""
+    return seguridad.ROLES[u["rol"]]["deps"] if u and "casos" in u["perm"] else []
 
 
 def _es_personal(u) -> bool:
@@ -455,7 +493,15 @@ async def estado(u: Optional[dict] = Depends(actual)):
         "reports": _reportes(u, ahora() - 30 * D),
         "cases": _casos(u),
         "dailyIndex": indice, "categorias": motor.CATEGORIAS, "params": motor.umbrales(con), "staleDays": DIAS_SIN_VISITA,
+        # Basura retirada de las barreras (de los vaciados registrados) y estaciones de tratamiento
+        "basura": {"kg30": _kg_desde(ahora() - 30 * D), "kg90": _kg_desde(ahora() - 90 * D),
+                   "vaciados30": con.execute("SELECT COUNT(*) AS c FROM vaciados WHERE t >= ?", (ahora() - 30 * D,)).fetchone()["c"]},
+        "estaciones": [{"nodo": k, "codigo": v["codigo"], "nombre": v["nombre"]} for k, v in semilla.ESTACIONES.items()],
     }
+
+
+def _kg_desde(t0: int) -> int:
+    return int(con.execute("SELECT COALESCE(SUM(kg), 0) AS s FROM vaciados WHERE t >= ?", (t0,)).fetchone()["s"])
 
 
 @app.get("/api/nodos", tags=["datos"])
@@ -485,11 +531,148 @@ async def datos_abiertos(nodo: str, dias: int = 7):
     """Datos abiertos para universidades: lecturas de un nodo en CSV."""
     if not con.execute("SELECT 1 FROM nodos WHERE id = ?", (nodo,)).fetchone():
         raise HTTPException(404, "El nodo no existe.")
-    filas = [dict(f) for f in con.execute("SELECT t, ph, cond, turb, color, temp, nivel, anom FROM lecturas WHERE nodo = ? AND t >= ? ORDER BY t",
-                                          (nodo, ahora() - max(1, min(dias, 31)) * D))]
+    filas = [dict(f) for f in con.execute(f"SELECT t, ph, cond, turb, color, temp, nivel, anom, {', '.join(motor.ESTACION)} FROM lecturas "
+                                          "WHERE nodo = ? AND t >= ? ORDER BY t", (nodo, ahora() - max(1, min(dias, 31)) * D))]
     texto = lotes.csv_abierto(filas)
     return PlainTextResponse(texto, media_type="text/csv; charset=utf-8",
                              headers={"Content-Disposition": f'attachment; filename="vigia_{nodo}_{dias}d.csv"'})
+
+
+# ---------- Series para gráficas y estación piloto ----------
+SERIE_PARAMS = ("ph", "cond", "turb", "color", "temp", "nivel") + motor.ESTACION
+
+
+def _agrupar(filas, paso: int, campos) -> list:
+    """Mediana de cada campo por hora o por día (hora del centro) y cuántas lecturas anómalas hubo."""
+    cubetas = {}
+    for f in filas:
+        cubetas.setdefault((f["t"] - 6 * H) // paso, []).append(f)
+    salida = []
+    for k in sorted(cubetas):
+        grupo = cubetas[k]
+        p = {"t": k * paso + 6 * H, "n": len(grupo), "anom": sum(1 for f in grupo if f["anom"] and f["anom"] != "[]")}
+        for c in campos:
+            vals = [f[c] for f in grupo if f[c] is not None]
+            if vals:
+                p[c] = round(motor.mediana(vals), 3)
+        salida.append(p)
+    return salida
+
+
+@app.get("/api/series", tags=["datos"])
+async def series(nodo: str, dias: int = 7, agrupar: str = "hora"):
+    """Medianas por hora (`agrupar=hora`) o por día (`agrupar=dia`) de un nodo, para las gráficas. Pública."""
+    if not con.execute("SELECT 1 FROM nodos WHERE id = ?", (nodo,)).fetchone():
+        raise HTTPException(404, "El nodo no existe.")
+    dias = max(1, min(dias, 90))
+    ultima = con.execute("SELECT MAX(t) AS m FROM lecturas WHERE nodo = ?", (nodo,)).fetchone()["m"]
+    if not ultima:
+        return {"nodo": nodo, "puntos": [], "hasta": None}
+    filas = con.execute(f"SELECT t, anom, {', '.join(SERIE_PARAMS)} FROM lecturas WHERE nodo = ? AND t > ? ORDER BY t",
+                        (nodo, ultima - dias * D)).fetchall()
+    return {"nodo": nodo, "paso": H if agrupar != "dia" else D, "hasta": ultima,
+            "puntos": _agrupar(filas, H if agrupar != "dia" else D, SERIE_PARAMS)}
+
+
+def _integra(filas, campo, factor=1.0) -> float:
+    """Suma de campo × tiempo entre lecturas (caudal en L/s → litros; potencia en W → W·s)."""
+    total = 0.0
+    for a, b in zip(filas, filas[1:]):
+        if a[campo] is not None:
+            total += a[campo] * min(b["t"] - a["t"], 20 * 60 * 1000) / 1000 * factor
+    return total
+
+
+def _cubierto(filas) -> int:
+    """Tiempo (ms) que cubren unas lecturas: huecos de más de 20 min no cuentan."""
+    return sum(min(b["t"] - a["t"], 20 * 60 * 1000) for a, b in zip(filas, filas[1:]))
+
+
+def _remocion(filas, entra, sale):
+    """Fracción removida ponderada por caudal: 1 − (Σ salida·Q) / (Σ entrada·Q)."""
+    num = sum(f[sale] * (f["caudal"] or 0) for f in filas if f[sale] is not None and f[entra] is not None)
+    den = sum(f[entra] * (f["caudal"] or 0) for f in filas if f[sale] is not None and f[entra] is not None)
+    return round(1 - num / den, 3) if den else None
+
+
+@app.get("/api/estacion", tags=["estación"])
+async def estacion(nodo: str = "N3", dias: int = 7):
+    """Estación piloto de tratamiento: qué entra, qué sale, cuánto trata y cómo va su mantenimiento. Pública."""
+    meta = semilla.ESTACIONES.get(nodo)
+    if not meta:
+        raise HTTPException(404, "Ese nodo no tiene estación de tratamiento.")
+    dias = max(1, min(dias, 30))
+    cols = "t, anom, ph, cond, turb, color, temp, nivel, " + ", ".join(motor.ESTACION)
+    ultima = con.execute("SELECT MAX(t) AS m FROM lecturas WHERE nodo = ? AND caudal IS NOT NULL", (nodo,)).fetchone()["m"]
+    n = con.execute("SELECT nombre, lat, lng, ultima_descarga, bateria FROM nodos WHERE id = ?", (nodo,)).fetchone()
+    base = {"nodo": nodo, **meta, "nombreNodo": n["nombre"], "lat": n["lat"], "lng": n["lng"], "ultimaVisita": n["ultima_descarga"]}
+    if not ultima:
+        return {**base, "hasta": None, "kpis": None, "serie": [], "mantenimiento": []}
+    filas = con.execute(f"SELECT {cols} FROM lecturas WHERE nodo = ? AND t > ? AND caudal IS NOT NULL ORDER BY t",
+                        (nodo, ultima - dias * D)).fetchall()
+    # Indicadores "por día": del día completo más reciente (20 h o más de datos). Los datos llegan por lotes con
+    # huecos, así que las últimas 24 h de reloj pueden traer solo unas horas; sin día completo se escala lo que haya.
+    por_dia = {}
+    for f in filas:
+        por_dia.setdefault((f["t"] - 6 * H) // D, []).append(f)
+    completos = [k for k, v in por_dia.items() if _cubierto(v) >= 20 * H]
+    if completos:
+        dia, dia_base, escala = por_dia[max(completos)], max(completos) * D + 6 * H, 1.0
+    else:
+        dia = [f for f in filas if f["t"] > ultima - D]
+        dia_base, escala = None, D / max(_cubierto(dia), H)
+    ult = filas[-1]
+    # Presión de filtros: a este ritmo, ¿cuándo toca retrolavado?
+    rec = [f for f in filas if f["t"] > ultima - 6 * H and f["dp_filtro"] is not None]
+    ritmo = (rec[-1]["dp_filtro"] - rec[0]["dp_filtro"]) / max(1, (rec[-1]["t"] - rec[0]["t"]) / H) if len(rec) > 2 else 0
+    # Mantenimiento detectado en los datos: purgas (cae el lodo), retrolavados (cae la presión) y paros (caudal 0)
+    eventos = []
+    for a, b in zip(filas, filas[1:]):
+        if a["lodos"] is not None and b["lodos"] is not None and a["lodos"] - b["lodos"] > 15:
+            eventos.append({"t": b["t"], "tipo": "purga", "texto": f"Purga de lodos del sedimentador ({a['lodos']:.0f}% → {b['lodos']:.0f}%)"})
+        if a["dp_filtro"] is not None and b["dp_filtro"] is not None and a["dp_filtro"] - b["dp_filtro"] > 8:
+            eventos.append({"t": b["t"], "tipo": "retrolavado", "texto": f"Retrolavado automático de filtros ({a['dp_filtro']:.0f} → {b['dp_filtro']:.0f} kPa)"})
+    # Carbón activado: el cambio se nota como un salto en la remoción de color (se busca en 60 días)
+    largo = con.execute("SELECT t, color, color_sal, caudal FROM lecturas WHERE nodo = ? AND t > ? AND caudal IS NOT NULL ORDER BY t",
+                        (nodo, ultima - 60 * D)).fetchall()
+    por_dia = {}
+    for f in largo:
+        por_dia.setdefault((f["t"] - 6 * H) // D, []).append(f)
+    efic_dia = [(k * D + 6 * H, _remocion(v, "color", "color_sal")) for k, v in sorted(por_dia.items()) if len(v) > 50]
+    cambio = None
+    for (t0, e0), (t1, e1) in zip(efic_dia, efic_dia[1:]):
+        if e0 is not None and e1 is not None and e1 - e0 > 0.12:
+            cambio = t1
+    if cambio:
+        eventos.append({"t": cambio, "tipo": "carbon", "texto": "Cambio de carbón activado (la remoción de color subió de golpe)"})
+    eventos.sort(key=lambda e: e["t"], reverse=True)
+    kpis = {
+        "caudal": ult["caudal"], "nivelRio": ult["nivel"],
+        "diaBase": dia_base,
+        "m3Dia": round(_integra(dia, "caudal") / 1000 * escala, 1), "m3Periodo": round(_integra(filas, "caudal") / 1000, 1),
+        "remocion": {k: _remocion(dia, k, k + "_sal") for k in ("turb", "color", "cond")},
+        "remocionPeriodo": {k: _remocion(filas, k, k + "_sal") for k in ("turb", "color", "cond")},
+        # Sólidos suspendidos ≈ 1.3 mg/L por NTU en este río; retenidos = (entrada − salida) × volumen tratado
+        "solidosKgDia": round(sum(1.3 * max(0.0, (a["turb"] or 0) - (a["turb_sal"] or 0)) * (a["caudal"] or 0)
+                                  * min(b["t"] - a["t"], 20 * 60 * 1000) / 1000 for a, b in zip(dia, dia[1:])) / 1e6 * escala, 2),
+        "lodos": ult["lodos"], "dp": ult["dp_filtro"], "dpMax": 24.0,
+        "horasRetrolavado": round((24.0 - ult["dp_filtro"]) / ritmo, 1) if ritmo > 0.05 and ult["dp_filtro"] is not None else None,
+        "energiaWhDia": round(_integra(dia, "solar") / 3600 * escala), "bateria": n["bateria"],
+        "carbonDias": round((ultima - cambio) / D, 1) if cambio else None, "carbonCada": 42,
+        "ph": {"entra": ult["ph"], "sale": ult["ph_sal"]},
+    }
+    return {**base, "hasta": ultima, "kpis": kpis, "mantenimiento": eventos[:12], "eficienciaColorDiaria": efic_dia,
+            "serie": _agrupar(filas, H, ("turb", "turb_sal", "color", "color_sal", "cond", "cond_sal", "ph", "ph_sal",
+                                          "caudal", "lodos", "dp_filtro", "solar", "nivel"))}
+
+
+CAPACIDAD_KG = {"B1": 260, "B2": 340, "B3": 210}         # basura que cabe en cada barrera llena
+
+
+def registrar_vaciado(barrera_id: str, llenado: float, por: str) -> None:
+    """Kilos estimados por el llenado al momento de vaciar (la báscula del camión puede corregirlos después)."""
+    kg = round(CAPACIDAD_KG.get(barrera_id, 250) * max(0.0, min(100.0, llenado or 0)) / 100)
+    con.execute("INSERT INTO vaciados (barrera, t, kg, quien) VALUES (?, ?, ?, ?)", (barrera_id, ahora(), kg, por))
 
 
 class EditarBarrera(BaseModel):
@@ -499,13 +682,15 @@ class EditarBarrera(BaseModel):
 
 
 @app.patch("/api/barreras/{barrera_id}", tags=["datos"])
-async def editar_barrera(barrera_id: str, datos: EditarBarrera, u: dict = Depends(con_rol("pc", "limpia", "admin"))):
+async def editar_barrera(barrera_id: str, datos: EditarBarrera, u: dict = Depends(con_permiso("barreras"))):
     """Lo que se registra en la visita a una barrera: llenado, nivel del agua o que ya se vació."""
     b = con.execute("SELECT * FROM barreras WHERE id = ?", (barrera_id,)).fetchone()
     if not b:
         raise HTTPException(404, "La barrera no existe.")
     llenado = 5 if datos.vaciada else (datos.fill if datos.fill is not None else b["llenado"])
     nivel = datos.nivel if datos.nivel is not None else b["nivel"]
+    if datos.vaciada:
+        registrar_vaciado(barrera_id, b["llenado"], quien(u))
     con.execute("UPDATE barreras SET llenado = ?, nivel = ?, ultima_descarga = ?, ultimo_vaciado = ? WHERE id = ?",
                 (llenado, nivel, ahora(), ahora() if datos.vaciada else b["ultimo_vaciado"], barrera_id))
     b = con.execute("SELECT * FROM barreras WHERE id = ?", (barrera_id,)).fetchone()
@@ -523,7 +708,7 @@ class Umbrales(BaseModel):
 
 
 @app.put("/api/ajustes/umbrales", tags=["datos"])
-async def guardar_umbrales(datos: Umbrales, u: dict = Depends(con_rol("admin"))):
+async def guardar_umbrales(datos: Umbrales, u: dict = Depends(con_permiso("config"))):
     limpio = {}
     for k, defecto in motor.UMBRALES_DEF.items():
         nuevo = {}
@@ -673,7 +858,7 @@ class EstadoReporte(BaseModel):
 
 
 @app.patch("/api/reportes/{folio}", tags=["reportes"])
-async def editar_reporte(folio: str, datos: EstadoReporte, u: dict = Depends(con_rol("ambiental", "limpia", "pc", "admin"))):
+async def editar_reporte(folio: str, datos: EstadoReporte, u: dict = Depends(con_permiso("validar"))):
     if datos.estado not in motor.ESTADOS_REPORTE:
         raise HTTPException(422, "Estado no válido.")
     f = con.execute("SELECT * FROM reportes WHERE id = ?", (folio,)).fetchone()
@@ -751,6 +936,8 @@ async def actuar_caso(caso_id: str, datos: AccionCaso, u: dict = Depends(con_ses
         motor.guardar_caso(con, d)
         if datos.accion == "cerrar":
             if d["barrera"] and d["tipo"] == "basura":
+                b = con.execute("SELECT llenado FROM barreras WHERE id = ?", (d["barrera"],)).fetchone()
+                registrar_vaciado(d["barrera"], b["llenado"] if b else 0, firma)
                 con.execute("UPDATE barreras SET llenado = 5, ultimo_vaciado = ? WHERE id = ?", (ahora(), d["barrera"]))
             for rid in d["reportes"]:
                 con.execute("UPDATE reportes SET estado = 'Atendido' WHERE id = ? AND estado <> 'Descartado'", (rid,))
@@ -779,7 +966,7 @@ def _resumen_lote(res: dict) -> dict:
 @app.post("/api/sincronizacion", tags=["recolección"])
 async def sincronizar(nodo: str = Form(...), archivo: UploadFile = File(...), limpieza: bool = Form(False),
                       calibracion: bool = Form(False), frascos: bool = Form(False),
-                      u: dict = Depends(con_rol(*seguridad.RECOLECCION))):
+                      u: dict = Depends(con_permiso("recoleccion"))):
     """Sube el CSV que se descargó del nodo en la visita. El servidor guarda las lecturas nuevas,
     busca eventos con su hora real, los cruza con los reportes y abre o actualiza los casos."""
     if not con.execute("SELECT 1 FROM nodos WHERE id = ?", (nodo,)).fetchone():
@@ -804,20 +991,21 @@ async def sincronizar(nodo: str = Form(...), archivo: UploadFile = File(...), li
 
 
 @app.get("/api/sincronizacion/ejemplo", tags=["recolección"], response_class=PlainTextResponse)
-async def csv_de_ejemplo(nodo: str = "N3", evento: str = "normal", horas: int = 6, u: dict = Depends(con_rol(*seguridad.RECOLECCION))):
+async def csv_de_ejemplo(nodo: str = "N3", evento: str = "normal", horas: int = 6, u: dict = Depends(con_permiso("recoleccion"))):
     """Archivo de ejemplo con el formato exacto de la microSD (valores simulados). Sirve para probar la carga
     y como referencia para el firmware. `evento`: normal | descarga | crecida."""
     f = con.execute("SELECT * FROM nodos WHERE id = ?", (nodo,)).fetchone()
     if not f or evento not in ("normal", "descarga", "crecida"):
         raise HTTPException(404, "Nodo o evento no válido.")
     t = ahora()
-    filas = lotes.simular(json.loads(f["base"]), t - max(1, min(horas, 168)) * H, t, evento, f["bateria"] or 80, "M-0000")
+    filas = lotes.simular(json.loads(f["base"]), t - max(1, min(horas, 168)) * H, t, evento, f["bateria"] or 80, "M-0000",
+                          nodo=nodo, estacion=semilla.tiene_estacion(nodo))
     return PlainTextResponse(lotes.a_csv(nodo, filas), media_type="text/csv; charset=utf-8",
                              headers={"Content-Disposition": f'attachment; filename="{nodo}_ejemplo_{evento}.csv"'})
 
 
 @app.get("/api/lotes", tags=["recolección"])
-async def listar_lotes(u: dict = Depends(con_rol(*seguridad.PERSONAL))):
+async def listar_lotes(u: dict = Depends(con_permiso("recoleccion"))):
     filas = con.execute("""SELECT l.*, COALESCE(us.nombre, 'Carga inicial') AS quien FROM lotes l LEFT JOIN usuarios us ON us.id = l.usuario_id
                            ORDER BY l.subido DESC LIMIT 50""").fetchall()
     return [modelos.lote_api(f) for f in filas]
@@ -889,20 +1077,21 @@ class DemoBarrera(BaseModel):
 
 
 @app.post("/api/demo/reporte", tags=["demo"])
-async def demo_reporte(u: dict = Depends(con_rol("admin"))):
-    """Simula un reporte de «agua de color» enviado desde la app cerca de Xoxtla."""
+async def demo_reporte(u: dict = Depends(con_permiso("config"))):
+    """Simula un reporte de «agua de color» enviado desde la app en la orilla del río, antes de Xoxtla."""
     solo_demo()
     ciudadana = con.execute("SELECT id FROM usuarios WHERE rol = 'ciudadano' AND demo = 1 LIMIT 1").fetchone()
     folio = f"R-{siguiente(con, 'reporte', 1300)}"
+    lat, lng = semilla.en_tramo(1, 0.8)                                 # sobre el tramo Huejotzingo → Xoxtla
     con.execute("""INSERT INTO reportes (id, usuario_id, cat, ia_etiqueta, ia_confianza, lat, lng, t, estado, anonimo, voz, texto)
-                   VALUES (?, ?, 'Agua de color', 'Agua de color', 0.93, 19.1835, -98.3050, ?, 'Recibido', 0, 0, ?)""",
-                (folio, ciudadana["id"] if ciudadana else None, ahora(), "Reporte simulado: agua azul bajo el puente."))
+                   VALUES (?, ?, 'Agua de color', 'Agua de color', 0.93, ?, ?, ?, 'Recibido', 0, 0, ?)""",
+                (folio, ciudadana["id"] if ciudadana else None, lat, lng, ahora(), "Reporte simulado: agua azul en la orilla del río."))
     await despues_de_reporte(con.execute("SELECT * FROM reportes WHERE id = ?", (folio,)).fetchone())
     return {"reporte": folio}
 
 
 @app.post("/api/demo/visita", tags=["demo"])
-async def demo_visita(datos: DemoVisita, u: dict = Depends(con_rol("admin"))):
+async def demo_visita(datos: DemoVisita, u: dict = Depends(con_permiso("config"))):
     """Simula la visita de Protección Civil: genera el archivo que habría guardado el nodo desde su última
     descarga (con o sin evento) y lo pasa por el mismo camino que un archivo real."""
     solo_demo()
@@ -914,7 +1103,8 @@ async def demo_visita(datos: DemoVisita, u: dict = Depends(con_rol("admin"))):
     if ultima > t - 45 * 60 * 1000:
         raise HTTPException(409, f"{datos.nodo} se acaba de descargar y no tiene datos nuevos. Usa «Reiniciar demo» para repetir la simulación.")
     folio = f"M-{siguiente(con, 'muestra', 20):04d}" if datos.evento == "descarga" else ""
-    filas = lotes.simular(json.loads(f["base"]), max(ultima + 10 * 60 * 1000, t - 5 * D), t, datos.evento, f["bateria"] or 80, folio)
+    filas = lotes.simular(json.loads(f["base"]), max(ultima + 10 * 60 * 1000, t - 5 * D), t, datos.evento, f["bateria"] or 80, folio,
+                          nodo=datos.nodo, estacion=semilla.tiene_estacion(datos.nodo))
     leido = lotes.leer_csv(lotes.a_csv(datos.nodo, filas).encode("utf-8"), datos.nodo, t)
     res = motor.ingerir(con, datos.nodo, leido["filas"], "Protección Civil", usuario_id=u["id"], archivo=f"{datos.nodo}_visita_simulada.csv",
                         integridad=leido["integridad"], invalidas=leido["invalidas"], checklist={"limpieza": True, "calibracion": False, "frascos": bool(folio)})
@@ -924,7 +1114,7 @@ async def demo_visita(datos: DemoVisita, u: dict = Depends(con_rol("admin"))):
 
 
 @app.post("/api/demo/barrera", tags=["demo"])
-async def demo_barrera(datos: DemoBarrera, u: dict = Depends(con_rol("admin"))):
+async def demo_barrera(datos: DemoBarrera, u: dict = Depends(con_permiso("config"))):
     solo_demo()
     if not con.execute("SELECT 1 FROM barreras WHERE id = ?", (datos.barrera,)).fetchone():
         raise HTTPException(404, "La barrera no existe.")
@@ -936,7 +1126,7 @@ async def demo_barrera(datos: DemoBarrera, u: dict = Depends(con_rol("admin"))):
 
 
 @app.post("/api/demo/reiniciar", tags=["demo"])
-async def demo_reiniciar(u: dict = Depends(con_rol("admin"))):
+async def demo_reiniciar(u: dict = Depends(con_permiso("config"))):
     """Regresa los datos de demostración al punto de partida (no toca las cuentas)."""
     solo_demo()
     semilla.demostracion(con)

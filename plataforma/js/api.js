@@ -13,7 +13,7 @@
   const USE_MOCK = location.protocol === "file:" || /[?&]demo(=|&|$)/.test(location.search);
   const C = VA.config;
 
-  VA.store = { nodes: [], tramos: [], barriers: [], history: {}, reports: [], cases: [], dailyIndex: {}, categorias: [] };
+  VA.store = { nodes: [], tramos: [], barriers: [], history: {}, reports: [], cases: [], dailyIndex: {}, categorias: [], basura: null, estaciones: [] };
   VA.session = { user: null, demo: USE_MOCK, mock: USE_MOCK };
 
   // ---------- HTTP ----------
@@ -28,6 +28,10 @@
     let data = null;
     try { data = await r.json(); } catch (e) { /* respuesta sin JSON */ }
     if (r.status === 401 && VA.session.user) { sessionExpired(); }
+    // Cuenta con contraseña temporal: el servidor no entrega nada hasta que la cambie
+    if (r.status === 403 && r.headers.get("X-VA-Accion") === "cambiar-clave") {
+      location.href = "login.html?cambiar=1&ir=" + encodeURIComponent(location.hash || "#/resumen");
+    }
     if (!r.ok) {
       const msg = data && typeof data.detail === "string" ? data.detail : "El servidor respondió con un error (" + r.status + ").";
       throw Object.assign(new Error(msg), { status: r.status });
@@ -54,8 +58,11 @@
     const s = VA.store;
     ["nodes", "tramos", "barriers", "reports", "cases"].forEach(k => mergeById(s[k], d[k]));
     s.history = d.history; s.dailyIndex = d.dailyIndex; s.categorias = d.categorias;
+    s.basura = d.basura || null; s.estaciones = d.estaciones || [];
     Object.entries(d.params || {}).forEach(([k, v]) => { if (C.params[k]) Object.assign(C.params[k], v); });
     if (d.staleDays) C.staleDays = d.staleDays;
+    // La sesión se cerró del lado del servidor (cuenta desactivada, contraseña cambiada en otro equipo, expiró)
+    if (VA.session.user && !d.usuario) { sessionExpired(); return; }
     VA.session.user = d.usuario; VA.session.demo = !!d.demo;
   }
 
@@ -123,9 +130,17 @@
   // ---------- Usuarios y recolección (solo con servidor) ----------
   const users = {
     list: () => http("GET", "/api/usuarios"),
+    catalog: () => http("GET", "/api/permisos"),
+    accesses: () => http("GET", "/api/accesos?limite=60"),
     create: d => http("POST", "/api/usuarios", d),
     update: (id, d) => http("PATCH", "/api/usuarios/" + id, d)
   };
+  // ---------- Series para gráficas y estación piloto (solo con servidor) ----------
+  const series = (nodo, dias = 7, agrupar = "hora") => USE_MOCK ? Promise.resolve(null)
+    : http("GET", `/api/series?nodo=${encodeURIComponent(nodo)}&dias=${dias}&agrupar=${agrupar}`);
+  const estacion = (nodo = "N3", dias = 7) => USE_MOCK ? Promise.resolve(null)
+    : http("GET", `/api/estacion?nodo=${encodeURIComponent(nodo)}&dias=${dias}`);
+
   const batches = {
     list: () => http("GET", "/api/lotes"),
     upload: form => http("POST", "/api/sincronizacion", form),
@@ -224,9 +239,11 @@
     },
     // Un reporte que llega desde la app móvil
     reporte(onMsg) {
+      // En la orilla del tramo que llega a Xoxtla (N3), a unos 800 m del puente
+      const pts = (VA.store.tramos.find(t => t.to === "N3") || VA.store.tramos[0]).points, p = pts[Math.floor(pts.length * 0.8)];
       const r = { id: "R-" + (1300 + Math.floor(Math.random() * 600)), cat: "Agua de color",
-        ai: { label: "Agua de color", conf: 0.93 }, lat: 19.1835, lng: -98.3050, t: Date.now(),
-        status: "Recibido", anonymous: false, voice: false, text: "Foto desde la app: agua azul bajo el puente." };
+        ai: { label: "Agua de color", conf: 0.93 }, lat: p[0], lng: p[1], t: Date.now(),
+        status: "Recibido", anonymous: false, voice: false, text: "Foto desde la app: agua azul en la orilla del río." };
       onMsg({ tipo: "reporte", reporte: r });
     }
   };
@@ -239,5 +256,5 @@
   };
 
   VA.api = { USE_MOCK, http, loadAll, refresh, logout, changePassword, caseAction, saveCase, reportStatus, photoUrl,
-    saveThresholds, users, batches, connect, setPaused, online, simulate, demo };
+    saveThresholds, users, batches, series, estacion, connect, setPaused, online, simulate, demo };
 })();
